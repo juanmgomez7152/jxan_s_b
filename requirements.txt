@@ -1,0 +1,12 @@
+certifi==2025.4.26
+cffi==1.17.1
+charset-normalizer==3.4.1
+cryptography==44.0.2
+dotenv==0.9.9
+idna==3.10
+pycparser==2.22
+python-dotenv==1.1.0
+requests==2.32.3
+tzdata==2025.2
+urllib3==2.4.0
+websockets==15.0.1

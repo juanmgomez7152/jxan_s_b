@@ -12,7 +12,7 @@ import urllib.parse
 from .stream import Stream
 from .tokens import Tokens
 
-
+BASE_API_URL = "https://api.schwabapi.com"
 class Client:
 
     def __init__(self, app_key, app_secret, callback_url="https://127.0.0.1", tokens_file="tokens.json", timeout=10, capture_callback=False, use_session=True, call_on_notify=None):
@@ -132,7 +132,7 @@ class Client:
         Return:
             request.Response: All linked account numbers and hashes
         """
-        return self._session.get(f'{self._base_api_url}/trader/v1/accounts/accountNumbers',
+        return self._session.get(f'{BASE_API_URL}/trader/v1/accounts/accountNumbers',
                             headers={'Authorization': f'Bearer {self.tokens.access_token}'},
                             timeout=self.timeout)
 
@@ -146,7 +146,7 @@ class Client:
         Returns:
             request.Response: details for all linked accounts
         """
-        return self._session.get(f'{self._base_api_url}/trader/v1/accounts/',
+        return self._session.get(f'{BASE_API_URL}/trader/v1/accounts/',
                             headers={'Authorization': f'Bearer {self.tokens.access_token}'},
                             params=self._params_parser({'fields': fields}),
                             timeout=self.timeout)
@@ -162,7 +162,7 @@ class Client:
         Returns:
             request.Response: details for one linked account
         """
-        return self._session.get(f'{self._base_api_url}/trader/v1/accounts/{accountHash}',
+        return self._session.get(f'{BASE_API_URL}/trader/v1/accounts/{accountHash}',
                             headers={'Authorization': f'Bearer {self.tokens.access_token}'},
                             params=self._params_parser({'fields': fields}),
                             timeout=self.timeout)
@@ -181,7 +181,7 @@ class Client:
         Returns:
             request.Response: orders for one linked account
         """
-        return self._session.get(f'{self._base_api_url}/trader/v1/accounts/{accountHash}/orders',
+        return self._session.get(f'{BASE_API_URL}/trader/v1/accounts/{accountHash}/orders',
                             headers={"Accept": "application/json", 'Authorization': f'Bearer {self.tokens.access_token}'},
                             params=self._params_parser(
                                 {'maxResults': maxResults,
@@ -201,7 +201,7 @@ class Client:
         Returns:
             request.Response: order number in response header (if immediately filled then order number not returned)
         """
-        return self._session.post(f'{self._base_api_url}/trader/v1/accounts/{accountHash}/orders',
+        return self._session.post(f'{BASE_API_URL}/trader/v1/accounts/{accountHash}/orders',
                              headers={"Accept": "application/json",
                                       'Authorization': f'Bearer {self.tokens.access_token}',
                                       "Content-Type": "application/json"},
@@ -219,7 +219,7 @@ class Client:
         Returns:
             request.Response: order details
         """
-        return self._session.get(f'{self._base_api_url}/trader/v1/accounts/{accountHash}/orders/{orderId}',
+        return self._session.get(f'{BASE_API_URL}/trader/v1/accounts/{accountHash}/orders/{orderId}',
                             headers={'Authorization': f'Bearer {self.tokens.access_token}'},
                             timeout=self.timeout)
 
@@ -234,7 +234,7 @@ class Client:
         Returns:
             request.Response: response code
         """
-        return self._session.delete(f'{self._base_api_url}/trader/v1/accounts/{accountHash}/orders/{orderId}',
+        return self._session.delete(f'{BASE_API_URL}/trader/v1/accounts/{accountHash}/orders/{orderId}',
                                headers={'Authorization': f'Bearer {self.tokens.access_token}'},
                                timeout=self.timeout)
 
@@ -250,7 +250,7 @@ class Client:
         Returns:
             request.Response: response code
         """
-        return self._session.put(f'{self._base_api_url}/trader/v1/accounts/{accountHash}/orders/{orderId}',
+        return self._session.put(f'{BASE_API_URL}/trader/v1/accounts/{accountHash}/orders/{orderId}',
                             headers={"Accept": "application/json",
                                      'Authorization': f'Bearer {self.tokens.access_token}',
                                      "Content-Type": "application/json"},
@@ -270,7 +270,7 @@ class Client:
         Returns:
             request.Response: all orders
         """
-        return self._session.get(f'{self._base_api_url}/trader/v1/orders',
+        return self._session.get(f'{BASE_API_URL}/trader/v1/orders',
                             headers={"Accept": "application/json", 'Authorization': f'Bearer {self.tokens.access_token}'},
                             params=self._params_parser(
                                 {'maxResults': maxResults,
@@ -282,7 +282,7 @@ class Client:
     """
     def order_preview(self, accountHash, orderObject) -> requests.Response:
         #COMING SOON (waiting on Schwab)
-        return self._session.post(f'{self._base_api_url}/trader/v1/accounts/{accountHash}/previewOrder',
+        return self._session.post(f'{BASE_API_URL}/trader/v1/accounts/{accountHash}/previewOrder',
                              headers={'Authorization': f'Bearer {self.tokens.access_token}',
                                       "Content-Type": "application.json"}, data=orderObject)
     """
@@ -301,7 +301,7 @@ class Client:
         Returns:
             request.Response: list of transactions for a specific account
         """
-        return self._session.get(f'{self._base_api_url}/trader/v1/accounts/{accountHash}/transactions',
+        return self._session.get(f'{BASE_API_URL}/trader/v1/accounts/{accountHash}/transactions',
                             headers={'Authorization': f'Bearer {self.tokens.access_token}'},
                             params=self._params_parser(
                                 {'startDate': self._time_convert(startDate, "8601"),
@@ -321,7 +321,7 @@ class Client:
         Returns:
             request.Response: transaction details of transaction id using accountHash
         """
-        return self._session.get(f'{self._base_api_url}/trader/v1/accounts/{accountHash}/transactions/{transactionId}',
+        return self._session.get(f'{BASE_API_URL}/trader/v1/accounts/{accountHash}/transactions/{transactionId}',
                             headers={'Authorization': f'Bearer {self.tokens.access_token}'},
                             timeout=self.timeout)
 
@@ -332,7 +332,7 @@ class Client:
         Returns:
             request.Response: User preferences and streaming info
         """
-        return self._session.get(f'{self._base_api_url}/trader/v1/userPreference',
+        return self._session.get(f'{BASE_API_URL}/trader/v1/userPreference',
                             headers={'Authorization': f'Bearer {self.tokens.access_token}'},
                             timeout=self.timeout)
 
@@ -352,7 +352,7 @@ class Client:
         Returns:
             request.Response: list of quotes
         """
-        return self._session.get(f'{self._base_api_url}/marketdata/v1/quotes',
+        return self._session.get(f'{BASE_API_URL}/marketdata/v1/quotes',
                             headers={'Authorization': f'Bearer {self.tokens.access_token}'},
                             params=self._params_parser(
                                 {'symbols': self._format_list(symbols),
@@ -371,7 +371,7 @@ class Client:
         Returns:
             request.Response: quote for a single symbol
         """
-        return self._session.get(f'{self._base_api_url}/marketdata/v1/{urllib.parse.quote(symbol_id,safe="")}/quotes',
+        return self._session.get(f'{BASE_API_URL}/marketdata/v1/{urllib.parse.quote(symbol_id,safe="")}/quotes',
                             headers={'Authorization': f'Bearer {self.tokens.access_token}'},
                             params=self._params_parser({'fields': fields}),
                             timeout=self.timeout)
@@ -410,7 +410,7 @@ class Client:
         Returns:
             request.Response: option chain
         """
-        return self._session.get(f'{self._base_api_url}/marketdata/v1/chains',
+        return self._session.get(f'{BASE_API_URL}/marketdata/v1/chains',
                             headers={'Authorization': f'Bearer {self.tokens.access_token}'},
                             params=self._params_parser(
                                 {'symbol': symbol,
@@ -442,7 +442,7 @@ class Client:
         Returns:
             request.Response: Option expiration chain
         """
-        return self._session.get(f'{self._base_api_url}/marketdata/v1/expirationchain',
+        return self._session.get(f'{BASE_API_URL}/marketdata/v1/expirationchain',
                             headers={'Authorization': f'Bearer {self.tokens.access_token}'},
                             params=self._params_parser({'symbol': symbol}),
                             timeout=self.timeout)
@@ -466,7 +466,7 @@ class Client:
         Returns:
             request.Response: Dictionary containing candle history
         """
-        return self._session.get(f'{self._base_api_url}/marketdata/v1/pricehistory',
+        return self._session.get(f'{BASE_API_URL}/marketdata/v1/pricehistory',
                             headers={'Authorization': f'Bearer {self.tokens.access_token}'},
                             params=self._params_parser({'symbol': symbol,
                                                         'periodType': periodType,
@@ -494,7 +494,7 @@ class Client:
         Returns:
             request.Response: Movers
         """
-        return self._session.get(f'{self._base_api_url}/marketdata/v1/movers/{symbol}',
+        return self._session.get(f'{BASE_API_URL}/marketdata/v1/movers/{symbol}',
                             headers={"accept": "application/json",
                                      'Authorization': f'Bearer {self.tokens.access_token}'},
                             params=self._params_parser({'sort': sort,
@@ -512,7 +512,7 @@ class Client:
         Returns:
             request.Response: Market hours
         """
-        return self._session.get(f'{self._base_api_url}/marketdata/v1/markets',
+        return self._session.get(f'{BASE_API_URL}/marketdata/v1/markets',
                             headers={'Authorization': f'Bearer {self.tokens.access_token}'},
                             params=self._params_parser(
                                 {'markets': symbols, #self._format_list(symbols),
@@ -530,7 +530,7 @@ class Client:
         Returns:
             request.Response: Market hours
         """
-        return self._session.get(f'{self._base_api_url}/marketdata/v1/markets/{market_id}',
+        return self._session.get(f'{BASE_API_URL}/marketdata/v1/markets/{market_id}',
                             headers={'Authorization': f'Bearer {self.tokens.access_token}'},
                             params=self._params_parser({'date': self._time_convert(date, 'YYYY-MM-DD')}),
                             timeout=self.timeout)
@@ -546,7 +546,7 @@ class Client:
         Returns:
             request.Response: Instruments
         """
-        return self._session.get(f'{self._base_api_url}/marketdata/v1/instruments',
+        return self._session.get(f'{BASE_API_URL}/marketdata/v1/instruments',
                             headers={'Authorization': f'Bearer {self.tokens.access_token}'},
                             params={'symbol': symbol,
                                     'projection': projection},
@@ -562,6 +562,6 @@ class Client:
         Returns:
             request.Response: Instrument
         """
-        return self._session.get(f'{self._base_api_url}/marketdata/v1/instruments/{cusip_id}',
+        return self._session.get(f'{BASE_API_URL}/marketdata/v1/instruments/{cusip_id}',
                             headers={'Authorization': f'Bearer {self.tokens.access_token}'},
                             timeout=self.timeout)
