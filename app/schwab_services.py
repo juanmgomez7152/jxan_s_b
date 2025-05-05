@@ -3,6 +3,7 @@ from app.models.core_quote_model import CoreQuoteModel
 from app.models.option_and_chain_model import OptionContract, OptionChainSnapshot
 from dotenv import load_dotenv
 from datetime import datetime
+from typing import Dict, List
 import logging
 import os
 
@@ -29,18 +30,19 @@ def controller_schwab():
                 list_of_tickers = ["MSFT", "AAPL", "GOOGL"]
                 get_core_quote(list_of_tickers)
             case "3":
-                tickers = ["AAPL"]
-                get_options_chain(tickers)
+                dict_of_tickers: Dict[str, List[float]] = {}
+                dict_of_tickers["MSFT"] = [440]
+                dict_of_tickers["AAPL"] = [190]
+                dict_of_tickers["GOOGL"] = [165]
+                dict_of_tickers["AMZN"] = [185]
+                get_options_chain(dict_of_tickers)
             case "x":
                 print("Exiting...")
                 terminar = False
             case _:
                 print("Invalid choice")
 
-def get_schwab_accounts():
-    return schwab_client.account_details_all()
-
-def get_schwab_available_cash():
+def get_schwab_available_cash() -> float:
     response_accounts = schwab_client.account_details_all()
     accounts = response_accounts.json()
     
@@ -51,46 +53,72 @@ def get_schwab_available_cash():
     logger.info(f"CASH AVAILABLE:{available_cash}")
     return available_cash
 
-def get_core_quote(tickers=[]):
+def get_core_quote(tickers=[]) -> List[CoreQuoteModel]:
     response = schwab_client.quotes(tickers)#can send a list of tickers to get multiple quotes
-    json_response = response.json()
+    data = response.json()
     quote_list = []
     for ticker in tickers:
-        quote_list.append(_parse_quote(json_response, ticker))
-        
+        quote_list.append(_parse_quote(data, ticker))
+    logger.info(f"# of Quotes: {len(quote_list)}")
     return quote_list
 
-def get_options_chain(tickers=[], strike_prices = []):#Change strike_prices to a Dict with the ticker as key and a list of strike prices as value
+def get_options_chain(tickers_strike_dict) -> List[OptionChainSnapshot]:
     options_chain_list = []
-    for ticker in tickers:
+    for ticker, strike_prices in tickers_strike_dict.items():
         for str_pr in strike_prices:
-            response = schwab_client.option_chains(ticker, str_pr)
-            json_response = response.json()
-            options_chain = OptionChainSnapshot(
-                expiration_date=json_response['expirationDate'],
-                options=[OptionContract(
-                    contract_symbol=option['contractSymbol'],
-                    strike_price=option['strikePrice'],
-                    type=option['type'],
-                    bid=option['bidPrice'],
-                    ask=option['askPrice'],
-                    last=option['lastPrice'],
-                    open_interest=option['openInterest'],
-                    volume=option['volume'],
-                    implied_volatility=option['impliedVolatility'],
-                    delta=option['delta'],
-                    gamma=option['gamma'],
-                    theta=option['theta'],
-                    vega=option['vega']
-                ) for option in json_response['options']]
-            )
-            options_chain_list.append(options_chain)
+            response = schwab_client.option_chains(symbol=ticker,contractType="ALL",strikeCount=2,
+                                                strike=str_pr, includeUnderlyingQuote=False,expMonth="MAY")
+            contract_list = []
+            data = response.json()
+            
+            #Extract calls
+            call_exp_map = data.get("callExpDateMap", {})
+            contract_list = _extract_contract_info(call_exp_map, contract_list)
+            # Extract puts
+            put_exp_map = data.get("putExpDateMap", {})
+            contract_list = _extract_contract_info(put_exp_map, contract_list)
+            
+            print(f"Number of contracts for {ticker}: {len(contract_list)}")
+            options_chain_list.append(OptionChainSnapshot(ticker=ticker, options=contract_list))
+            contract_list = []  # Reset for the next ticker
 
     
     return options_chain_list
 
-def get_options(ticker):
-    pass
+def _extract_contract_info(exp_map, contract_list):
+    for exp_date, strikes in exp_map.items():
+        for strike_price, contracts in strikes.items():
+            for contract in contracts:
+                symbol = contract.get("symbol")
+                expiration = contract.get("expirationDate")
+                ctype = contract.get("putCall")
+                strike = contract.get("strikePrice")
+                bid = contract.get("bid")
+                ask = contract.get("ask")
+                last = contract.get("last")
+                open_interest = contract.get("openInterest")
+                volume = contract.get("totalVolume")
+                implied_volatility = contract.get("volatility")
+                delta = contract.get("delta")
+                gamma = contract.get("gamma")
+                theta = contract.get("theta")
+                vega = contract.get("vega")
+                contract_list.append(OptionContract(expiration_date=expiration,
+                                                    contract_symbol=symbol,
+                                                    strike_price=strike,
+                                                    type=ctype,
+                                                    bid=bid,
+                                                    ask=ask,
+                                                    last=last,
+                                                    open_interest=open_interest,
+                                                    volume=volume,
+                                                    implied_volatility=implied_volatility,
+                                                    delta=delta,
+                                                    gamma=gamma,
+                                                    theta=theta,
+                                                    vega=vega))
+                    
+    return contract_list
 
 def _parse_quote(json_response, ticker):
     try:

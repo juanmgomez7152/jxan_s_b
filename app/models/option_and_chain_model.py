@@ -4,6 +4,7 @@ from typing import List
 
 @dataclass
 class OptionContract:
+    expiration_date: datetime
     contract_symbol: str
     strike_price: float
     type: str
@@ -20,5 +21,5 @@ class OptionContract:
 
 @dataclass
 class OptionChainSnapshot:
-    expiration_date: datetime
+    ticker: str
     options: List[OptionContract]
