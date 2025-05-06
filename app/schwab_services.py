@@ -2,7 +2,7 @@ from app.schwabdev.client import Client as SchwabClient
 from app.models.core_quote_model import CoreQuoteModel
 from app.models.historical_volatility_model import HistoicalPrice
 from app.models.fundamentals_model import FundamentalsModel
-from app.ai_stock_services import get_ai_stock_events, micro_stock_options_analysis
+from app.ai_stock_services import get_ai_stock_events, micro_stock_options_analysis, macro_stock_options_analysis
 from app.models.option_and_chain_model import OptionContract, OptionChainSnapshot
 from dotenv import load_dotenv
 from datetime import datetime
@@ -11,6 +11,8 @@ import logging
 import os
 import asyncio
 import statistics
+import json
+import pulp
 
 logger = logging.getLogger(__name__)
 load_dotenv()
@@ -49,21 +51,30 @@ def controller_schwab():
                 get_ticker_events_and_fundamentals(ticker)
             case "6":
                 ticker = "AAPL"
-                temp_orchestrator(ticker)
+                temp_micro_orchestrator(ticker)
+            case "7":
+                list_of_best_trades = ["AAPL", "MSFT", "GOOGL"]
+                temp_macro_orchestrator(list_of_best_trades)
+            case "8":
+                super_orchestrator()
+            case "9":
+                list_of_trades = ["AAPL", "MSFT", "GOOGL"]
+                cash, account_hash = get_schwab_available_cash()
+                place_order(list_of_trades,account_hash)
             case "x":
                 print("Exiting...")
                 terminar = False
             case _:
                 print("Invalid choice")
 
-def get_schwab_available_cash() -> float:
-    response_accounts = schwab_client.account_details_all()
-    accounts = response_accounts.json()
+def get_schwab_available_cash():
+    account = ((schwab_client.account_details_all()).json())[0]
+    account_hash = ((schwab_client.account_linked()).json())[0]['hashValue']
     
-    account_id = accounts[0]['securitiesAccount']['accountNumber']
-    available_cash = accounts[0]['securitiesAccount']['currentBalances']['availableFunds']
+    account_id = account['securitiesAccount']['accountNumber']
+    available_cash = account['securitiesAccount']['currentBalances']['availableFunds']
     
-    return available_cash
+    return available_cash,account_hash
 
 def get_core_quote(ticker) -> CoreQuoteModel:
     response = schwab_client.quotes(ticker)#can send a list of tickers to get multiple quotes
@@ -76,7 +87,7 @@ def get_options_chain(tickers_strike_dict):
     for ticker, strike_price in tickers_strike_dict.items():
         
         #TODO: May have to add argument for expiration month, strike count
-        response = schwab_client.option_chains(symbol=ticker,contractType="ALL",strikeCount=6,
+        response = schwab_client.option_chains(symbol=ticker,contractType="ALL",strikeCount=9,
                                             strike=strike_price, includeUnderlyingQuote=False,expMonth="MAY")
         contract_list = []
         data = response.json()
@@ -115,8 +126,81 @@ def get_ticker_events_and_fundamentals(ticker):
     except Exception as e:
         logger.error(f"Error in get_ticker_events: {e}")
         return None
+    
+def place_order(list_of_trades, account_hash):
+    try:
+        
+        for trade in list_of_trades:
+            logger.info(f"Placing order for trade: {trade}")
+            # Extract trade details
+            contract_symbol = trade['contractSymbol']
+            premium_per_contract = trade['premiumPerContract']
+            exit_premium = trade['exitPremium']
+            contracts_to_buy = trade['contractsToBuy']
+            
+            
+            order = {
+                "orderType": "LIMIT",
+                "session": "NORMAL",
+                "price": premium_per_contract,
+                'duration': "GOOD_TILL_CANCEL",
+                "orderStrategyType": "SINGLE",
+                "complexOrderStrategyType": "NONE",
+                "orderLegCollection": [
+                    {
+                        "instruction": "BUY_TO_OPEN",
+            
+                        "quantity": contracts_to_buy,
+                        "instrument": {
+                            "symbol": contract_symbol,
+                            "assetType": "OPTION",
+                        }
+                    }
+                ]
+            }
+            print(f"Order:\n {order}\n")
+            # Place order using Schwab API
+            response = schwab_client.order_place(account_hash,order)
 
-def temp_orchestrator(ticker):
+    except Exception as e:
+        logger.error(f"Error in place_order: {e}")
+        return None
+    
+def super_orchestrator(): 
+    
+    trade1 = temp_micro_orchestrator("AAPL")
+    trade2 = temp_micro_orchestrator("MSFT")
+    trade3 = temp_micro_orchestrator("GOOGL")
+    trade4 = temp_micro_orchestrator("AMZN")   
+    
+    list_of_best_trades = [trade1, trade2, trade3, trade4]
+    # Get available cash
+    available_cash,account_hash = get_schwab_available_cash()
+    available_cash = available_cash * 0.8 # Use 80% of available cash for trading
+    optimal_trades, diverse_trades = temp_macro_orchestrator(list_of_best_trades, available_cash)
+    
+    print(f"Optimal trades:\n {optimal_trades}")
+    print(f"Diverse trades:\n {diverse_trades}")
+    
+    trades_to_order = diverse_trades['selectedTrades']
+    place_order(trades_to_order, account_hash)
+    
+
+def temp_macro_orchestrator(list_of_best_trades, available_cash=800):
+    try:
+        payload = {
+            "bestTradesList": list_of_best_trades,
+            "availableCash": available_cash,
+        }
+        print(f"Payload: {payload}")
+        trades_to_make = optimal_trade_selection(payload)
+        diverse_trades = diversified_trade_selection(payload)
+        return trades_to_make, diverse_trades
+    except Exception as e:
+        logger.error(f"Error in orchestrator: {e}")
+        return None
+
+def temp_micro_orchestrator(ticker):
     try:
         fundamentals_and_events = get_ticker_events_and_fundamentals(ticker)
         # logger.info(f"Fundamentals and Events for {ticker}: {fundamentals_and_events}")
@@ -140,10 +224,135 @@ def temp_orchestrator(ticker):
             "fundamentals": fundamentals_and_events
         }
 
-        micro_analysis = asyncio.run(micro_stock_options_analysis(payload))
+        best_trade = asyncio.run(micro_stock_options_analysis(payload))
+        
+        return best_trade
+    
     except Exception as e:
         logger.error(f"Error in orchestrator: {e}")
         return None
+    
+def optimal_trade_selection(payload):
+    # Convert budget to cents
+    budget_cents = int(round(payload['availableCash'] * 100))
+    
+    trades = payload['bestTradesList']
+    # Prepare items: cost in cents, value (score), index
+    items = []
+    for idx, item in enumerate(trades):
+        premium = item['bestTrade']['premiumPerContract']
+        cost_cents = int(round(premium * 100 * 100))  # premiumPerContract * 100 contracts * 100 cents
+        if cost_cents <= 0 or cost_cents > budget_cents:
+            continue
+        items.append((idx, cost_cents, item['score']))
+    
+    # DP arrays
+    dp = [0.0] * (budget_cents + 1)
+    choice = [-1] * (budget_cents + 1)
+    
+    # Unbounded knapsack
+    for b in range(budget_cents + 1):
+        for idx, cost, value in items:
+            if cost <= b:
+                new_val = dp[b - cost] + value
+                if new_val > dp[b]:
+                    dp[b] = new_val
+                    choice[b] = idx
+    
+    # Backtrack to find quantities
+    remaining = budget_cents
+    counts = {idx: 0 for idx, _, _ in items}
+    while remaining > 0 and choice[remaining] != -1:
+        idx = choice[remaining]
+        cost = next(c for i, c, v in items if i == idx)
+        counts[idx] += 1
+        remaining -= cost
+    
+    # Build result
+    selected = []
+    total_used_cents = 0
+    for idx, count in counts.items():
+        if count > 0:
+            item = trades[idx]
+            trade = item['bestTrade']
+            cost_per_contract = trade['premiumPerContract'] * 100
+            used = int(round(cost_per_contract * count * 100)) / 100.0
+            total_used_cents += int(round(cost_per_contract * count * 100))
+            selected.append({
+                'symbol': item['symbol'],
+                'contractSymbol': trade['contractSymbol'],
+                'type': trade['type'],
+                'strikePrice': trade['strikePrice'],
+                'expirationDate': trade['expirationDate'],
+                'premiumPerContract': trade['premiumPerContract'],
+                'exitPremium': trade['exitPremium'],
+                'score': item['score'],
+                'contractsToBuy': count
+            })
+    
+    total_used = total_used_cents / 100.0
+    return {
+        'selectedTrades': selected,
+        'totalPremiumUsed': total_used
+    }
+
+
+def diversified_trade_selection(payload, max_symbol_pct=0.5):
+    # Budget
+    budget = payload['availableCash']
+    
+    trades = payload['bestTradesList']
+    
+    # Define problem
+    prob = pulp.LpProblem("Diversified_Trade_Selection", pulp.LpMaximize)
+    
+    # Decision variables: number of contracts per trade (integer)
+    x = {
+        i: pulp.LpVariable(f"x_{i}", lowBound=0, cat="Integer")
+        for i in range(len(trades))
+    }
+    
+    # Objective: maximize total score
+    prob += pulp.lpSum([trades[i]['score'] * x[i] for i in x])
+    
+    # Budget constraint
+    prob += pulp.lpSum([trades[i]['bestTrade']['premiumPerContract'] * 100 * x[i] for i in x]) <= budget
+    
+    # Diversification constraint: no single symbol consumes more than max_symbol_pct of budget
+    for symbol in set(t['symbol'] for t in trades):
+        prob += pulp.lpSum([
+            trades[i]['bestTrade']['premiumPerContract'] * 100 * x[i]
+            for i in x if trades[i]['symbol'] == symbol
+        ]) <= max_symbol_pct * budget
+    
+    # Solve
+    prob.solve()
+    
+    # Build result
+    selected = []
+    total_used = 0.0
+    for i in x:
+        count = int(pulp.value(x[i]))
+        if count > 0:
+            trade = trades[i]['bestTrade']
+            cost = trade['premiumPerContract'] * 100 * count
+            total_used += cost
+            selected.append({
+                'symbol': trades[i]['symbol'],
+                'contractSymbol': trade['contractSymbol'],
+                'type': trade['type'],
+                'strikePrice': trade['strikePrice'],
+                'expirationDate': trade['expirationDate'],
+                'premiumPerContract': trade['premiumPerContract'],
+                'exitPremium': trade['exitPremium'],
+                'score': trades[i]['score'],
+                'contractsToBuy': count
+            })
+    
+    return {
+        'selectedTrades': selected,
+        'totalPremiumUsed': total_used
+    }
     
 def _extract_contract_info(exp_map, contract_list) -> List[OptionContract]:
         # Collect contracts by expiration date

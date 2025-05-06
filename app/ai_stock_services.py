@@ -41,7 +41,137 @@ async def get_ai_stock_news(ticker):
     pass
 
 async def macro_stock_options_analysis(payload):
-    pass
+    try:
+        responses = client.chat.completions.create(
+            model=MODEL_NAME,
+            temperature=0,
+            top_p=1,
+            messages=[
+                {
+                    "role": "system",
+                    "content": """
+                    You are a Stock Options Portfolio Agent.
+
+                    Your goal is to select the best combination of weekly options trades (2 to 14 day hold) within the given budget to maximize profit.
+
+                    PAYLOAD:
+                    {
+                    "List of Best Trades": [ … ],
+                    "availableCash": float
+                    }
+
+                    REQUIREMENTS:
+                    - Use only the data in the payload; do not hallucinate.
+                    - Calculate `contractsToBuy` = floor(availableCashRemaining / (100 * premiumPerContract)).
+                    - Pack as many contracts of each trade as your budget allows, prioritizing higher `score`.
+                    - Do NOT output ANY explanatory text or markdown—**output ONLY** the final JSON object.
+                    
+                    EXAMPLE:
+                    *****
+                    Here is the payload:
+                    Example 1 (fit two small trades)
+                    Here is the payload:
+                    {
+                        "List of Best Trades": [
+                            { "symbol":"AAPL", "bestTrade":{ "contractSymbol":"AAPL250509P00195000","type":"PUT","strikePrice":195.0,"expirationDate":"2025-05-09T20:00:00.000+00:00","premiumPerContract":1.50,"exitPremium":2.00 }, "score":7.5 },
+                            { "symbol":"TSLA", "bestTrade":{ "contractSymbol":"TSLA250516C00800000","type":"CALL","strikePrice":800.0,"expirationDate":"2025-05-16T20:00:00.000+00:00","premiumPerContract":2.00,"exitPremium":3.10 }, "score":8.0 },
+                            { "symbol":"MSFT", "bestTrade":{ "contractSymbol":"MSFT250516C00440000","type":"CALL","strikePrice":440.0,"expirationDate":"2025-05-16T20:00:00.000+00:00","premiumPerContract":6.85,"exitPremium":9.15 }, "score":8.2 }
+                        ],
+                        "availableCash": 1000.00
+                    }
+                    OUTPUT:
+                    {
+                        "selectedTrades": [
+                            {
+                            "symbol": "MSFT",
+                            "contractSymbol": "MSFT250516C00440000",
+                            "type": "CALL",
+                            "strikePrice": 440.0,
+                            "expirationDate": "2025-05-16",
+                            "premiumPerContract": 6.85,
+                            "exitPremium": 9.15,
+                            "score": 8.2,
+                            "contractsToBuy": 1
+                            },
+                            {
+                            "symbol": "TSLA",
+                            "contractSymbol": "TSLA250516C00800000",
+                            "type": "CALL",
+                            "strikePrice": 800.0,
+                            "expirationDate": "2025-05-16",
+                            "premiumPerContract": 2.00,
+                            "exitPremium": 3.10,
+                            "score": 8.0,
+                            "contractsToBuy": 1
+                            }
+                        ],
+                        "totalPremiumUsed": 885.00
+                    }
+                    ******
+                    Example 2 (only one big-ticket trade fits)
+                    Here is the payload:
+                    {
+                        "List of Best Trades": [
+                            { "symbol":"NFLX", "bestTrade":{ "contractSymbol":"NFLX250509C00500000","type":"CALL","strikePrice":500.0,"expirationDate":"2025-05-09T20:00:00.000+00:00","premiumPerContract":8.00,"exitPremium":10.00 }, "score":8.5 },
+                            { "symbol":"AMD",  "bestTrade":{ "contractSymbol":"AMD250516P00090000","type":"PUT","strikePrice":90.0, "expirationDate":"2025-05-16T20:00:00.000+00:00","premiumPerContract":0.80,"exitPremium":1.20 }, "score":7.0 }
+                        ],
+                        "availableCash": 500.0
+                    }
+                    OUTPUT:
+                    {
+                    "selectedTrades": [
+                        {
+                        "symbol": "AMD",
+                        "contractSymbol": "AMD250516P00090000",
+                        "type": "PUT",
+                        "strikePrice": 90.0,
+                        "expirationDate": "2025-05-16",
+                        "premiumPerContract": 0.80,
+                        "exitPremium": 1.20,
+                        "score": 7.0,
+                        "contractsToBuy": 6
+                        }
+                    ],
+                    "totalPremiumUsed": 480.0
+                    }
+
+                    """   
+                },
+                {
+                    "role": "user",
+                    "content": f"""
+                        Here is the payload:
+                        {payload}
+
+                        Please return only JSON conforming to this schema:
+                                            OUTPUT SCHEMA:
+                        {{
+                        "selectedTrade(s)": [
+                            {{
+                            "symbol": string,
+                            "contractSymbol": string,
+                            "type": "CALL" | "PUT",
+                            "strikePrice": float,
+                            "expirationDate": string,
+                            "premiumPerContract": float,
+                            "exitPremium": float,
+                            "score": float,
+                            "contractsToBuy": integer
+                            }},
+                            ...
+                        ],
+                        "totalPremiumUsed": float
+                        }}
+                    """
+                }
+            ]
+        )
+        recommendation = responses.choices[0].message.content
+        json_rec = json.loads(recommendation)
+        return json_rec
+    except Exception as e:
+        logger.error(f"Error in macro_stock_options_analysis: {e}")
+        return None
 
 async def micro_stock_options_analysis(payload):
     try:
@@ -52,43 +182,48 @@ async def micro_stock_options_analysis(payload):
             messages=[
                 {
                     "role": "system",
-                    "content": """You are a Stock Options Agent looking to Maximize portfolio profits through weekly options, holding for at most 2 weeks and at least 2 days, you will be provided with the follwoing Payload:
-                    Payload Format:
-                                            {
-                            "symbol": "AAPL",
-                            "quote": { … },
-                            "optionsChain": [ … ],
-                            "historicalPrices": [ … ],
-                            "fundamentals": { … }
-                            }
-                            
-                    You will need to provide a JSON response with the following format:
-                    {
-                        "symbol": "AAPL", (*ticker)
-                        "bestTrade": {
-                            "contractSymbol": "AAPL250509C00200000", (*contractSymbol)
-                            "type": "CALL", (*type)
-                            "strikePrice": 200.0, (*strikePrice)
-                            "expirationDate": "2025-05-09", (*expirationDate)
-                            "premiumPerContract": 2.88 (*premiumPerContract)
-                            "exitPremium": 3.50, (*exitPremium)
-                        },
-                        "score": 7.5 (*score)
-                    }
-                    ******
-                    The *score is a number between 0 and 10, score the contract on how good the trade is likely to return a positive roi.
-                    
-                    """
+                    "content": """
+                    You are a stock-options analysis agent. 
+                    - Goal: Maximize portfolio profit via weekly options (2–14 day hold). 
+                    - Always output a valid JSON matching the provided schema. 
+                    - Use only the data in the payload; do not hallucinate.
+                """
                 },
                 {
                     "role": "user",
-                    "content": f"Analyze the following payload and provide a recommendation: {payload}"
+                    "content": f"""
+                    Here is the payload to analyze:
+                    {payload}
+
+                    Please return only JSON conforming to this schema:
+                    {{
+                    "type": "object",
+                    "properties": {{
+                        "symbol":    {{ "type": "string" }},
+                        "bestTrade": {{
+                        "type": "object",
+                        "properties": {{
+                            "contractSymbol":   {{ "type": "string" }},
+                            "type":             {{ "type": "string", "enum": ["CALL","PUT"] }},
+                            ...
+                        }},
+                        "required": ["contractSymbol","type","strikePrice","expirationDate","premiumPerContract","exitPremium"]
+                        }},
+                        "score": {{ "type": "number", "minimum": 0, "maximum": 10 }}
+                    }},
+                    "required": ["symbol","bestTrade","score"]
+                    }}
+                    ******
+                    The *score is a number between 0 and 10, score the contract on how good the trade is likely to return a positive roi.
+                    """
                 }
             ],
         )    
         
         recommendation = responses.choices[0].message.content
-        logger.info(f"Recommendation: {recommendation}")
+        json_rec = json.loads(recommendation)
+        return json_rec
+        
     except Exception as e:
         logger.error(f"Error in micro_stock_options_analysis: {e}")
         return None
@@ -143,7 +278,9 @@ async def get_ai_stock_events(ticker):
                 },
                 {"role":"user",
                  "content": f"""what are the fundamental and corporate events for {ticker} in the next 30 days?"""
-                            }]
+                            }
+                
+                ]
         )
         # Extract and parse the JSON
         pattern = r'```json\s*(.*?)\s*```'

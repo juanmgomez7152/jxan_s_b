@@ -1,0 +1,12 @@
+{
+    "symbol": "AAPL",
+    "bestTrade": {
+      "contractSymbol": "AAPL  250509P00195000",
+      "type": "PUT",
+      "strikePrice": 195.0,
+      "expirationDate": "2025-05-09T20:00:00.000+00:00",
+      "premiumPerContract": 1.75,
+      "exitPremium": 2.67
+    },
+    "score": 7.5
+}

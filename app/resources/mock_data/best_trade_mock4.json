@@ -1,0 +1,13 @@
+
+{
+    "symbol": "MSFT",
+    "bestTrade": {
+      "contractSymbol": "MSFT  250516C00440000",
+      "type": "CALL",
+      "strikePrice": 440.0,
+      "expirationDate": "2025-05-16T20:00:00.000+00:00",
+      "premiumPerContract": 6.85,
+      "exitPremium": 9.15
+    },
+    "score": 8.2
+}

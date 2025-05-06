@@ -1,0 +1,15 @@
+{
+    "selectedTrades": [{
+        "symbol": "AAPL",
+         "contractSymbol": "AAPL  250509P00197500",
+          "type": "PUT",
+           "strikePrice": 197.5,
+            "expirationDate": "2025-05-09T20:00:00.000+00:00",
+             "premiumPerContract": 2.03,
+              "exitPremium": 2.5, 
+              "score": 7.2,
+               "contractsToBuy": 1},
+                        {"symbol": "GOOGL", "contractSymbol": "GOOGL 250509P00160000", "type": "PUT", "strikePrice": 160.0, "expirationDate": "2025-05-09T20:00:00.000+00:00", "premiumPerContract": 0.7, "exitPremium": 1.71, "score": 7.2, "contractsToBuy": 5}, 
+                        {"symbol": "AMZN", "contractSymbol": "AMZN  250509P00185000", "type": "PUT", "strikePrice": 185.0, "expirationDate": "2025-05-09T20:00:00.000+00:00", "premiumPerContract": 2.34, "exitPremium": 3.95, "score": 7.5, "contractsToBuy": 1}]
+    , "totalPremiumUsed": 787.0
+}

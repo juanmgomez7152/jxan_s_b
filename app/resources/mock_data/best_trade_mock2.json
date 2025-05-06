@@ -1,0 +1,12 @@
+{
+    "symbol": "AMZN",
+    "bestTrade": {
+      "contractSymbol": "AMZN  250530C00185000",
+      "type": "CALL",
+      "strikePrice": 185.0,
+      "expirationDate": "2025-05-30T20:00:00.000+00:00",
+      "premiumPerContract": 5.25,
+      "exitPremium": 7.40
+    },
+    "score": 7.9
+}
