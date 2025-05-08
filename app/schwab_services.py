@@ -300,7 +300,13 @@ def _extract_contract_info(exp_map, contract_list) -> List[OptionContract]:
             }
             for c in contracts_for_exp:
                 c["iv_stats"] = stats  # attach stats to each contract
+    _score_contracts(contract_list)
     return contract_list
+
+def _score_contracts(contract_list):
+    single_contract = contract_list[0]
+    logger.info(f"Scoring contract: {single_contract}")
+    pass
 
 def _parse_quote(json_response, ticker):
     try:

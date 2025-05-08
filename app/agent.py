@@ -100,15 +100,12 @@ def temp_macro_orchestrator(list_of_best_trades, available_cash=800):
 def temp_micro_orchestrator(ticker):
     try:
         fundamentals_and_events = get_ticker_events_and_fundamentals(ticker)
-        # logger.info(f"Fundamentals and Events for {ticker}: {fundamentals_and_events}")
-        # Get core quote
+
         core_quote = get_core_quote(ticker)
         atm_strike_price = round(core_quote["last_price"])
-        # logger.info(f"Core Quote for {ticker}: {core_quote}")
-        # Get options chain
+        
         options_chain = get_options_chain({ticker: atm_strike_price})
         
-        # Get price history
         price_history = get_price_history(ticker)
         
         payload = {
