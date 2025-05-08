@@ -2,10 +2,10 @@ from app.schwabdev.client import Client as SchwabClient
 from app.models.core_quote_model import CoreQuoteModel
 from app.models.historical_volatility_model import HistoicalPrice
 from app.models.fundamentals_model import FundamentalsModel
-from app.ai_stock_services import get_ai_stock_events, micro_stock_options_analysis, macro_stock_options_analysis
+from app.ai_stock_services import get_ai_stock_events
 from app.models.option_and_chain_model import OptionContract, OptionChainSnapshot
 from dotenv import load_dotenv
-from datetime import datetime
+from datetime import datetime,timedelta
 from typing import Dict, List
 import logging
 import os
@@ -13,6 +13,7 @@ import asyncio
 import statistics
 import json
 import pulp
+from calendar import month_abbr
 
 logger = logging.getLogger(__name__)
 load_dotenv()
@@ -23,50 +24,6 @@ schwab_client = SchwabClient(APP_KEY, APP_SECRET, APP_CALLBACK_URL)
 global available_cash
 global account_id
 
-
-def controller_schwab():
-    print("Welcome to the Schwab API Controller")
-    
-    terminar = True
-    while terminar:
-        choice = input("Please select an option:")
-        match choice:
-            case "1":
-                get_schwab_available_cash()
-            case "2":
-                list_of_tickers = ["MSFT", "AAPL", "GOOGL"]
-                get_core_quote(list_of_tickers)
-            case "3":
-                dict_of_tickers: Dict[str, float] = {}
-                dict_of_tickers["MSFT"] = 440
-                # dict_of_tickers["AAPL"] = 190
-                # dict_of_tickers["GOOGL"] = 165
-                # dict_of_tickers["AMZN"] = 185
-                get_options_chain(dict_of_tickers)
-            case "4":
-                ticker = "AAPL"
-                get_price_history(ticker)
-            case "5":
-                ticker = "AAPL"
-                get_ticker_events_and_fundamentals(ticker)
-            case "6":
-                ticker = "AAPL"
-                temp_micro_orchestrator(ticker)
-            case "7":
-                list_of_best_trades = ["AAPL", "MSFT", "GOOGL"]
-                temp_macro_orchestrator(list_of_best_trades)
-            case "8":
-                super_orchestrator()
-            case "9":
-                list_of_trades = ["AAPL", "MSFT", "GOOGL"]
-                cash, account_hash = get_schwab_available_cash()
-                place_order(list_of_trades,account_hash)
-            case "x":
-                print("Exiting...")
-                terminar = False
-            case _:
-                print("Invalid choice")
-
 def get_schwab_available_cash():
     account = ((schwab_client.account_details_all()).json())[0]
     account_hash = ((schwab_client.account_linked()).json())[0]['hashValue']
@@ -76,7 +33,7 @@ def get_schwab_available_cash():
     
     return available_cash,account_hash
 
-def get_core_quote(ticker) -> CoreQuoteModel:
+def get_core_quote(ticker):
     response = schwab_client.quotes(ticker)#can send a list of tickers to get multiple quotes
     data = response.json()
     quote = (_parse_quote(data, ticker))
@@ -87,8 +44,10 @@ def get_options_chain(tickers_strike_dict):
     for ticker, strike_price in tickers_strike_dict.items():
         
         #TODO: May have to add argument for expiration month, strike count
+        current_date = datetime.now().strftime("%Y-%m-%d")
+        current_date_plus_14 = (datetime.now() + timedelta(days=14)).strftime("%Y-%m-%d")
         response = schwab_client.option_chains(symbol=ticker,contractType="ALL",strikeCount=9,
-                                            strike=strike_price, includeUnderlyingQuote=False,expMonth="MAY")
+                                            strike=strike_price, includeUnderlyingQuote=False,fromDate=current_date,toDate=current_date_plus_14)
         contract_list = []
         data = response.json()
         
@@ -131,7 +90,6 @@ def place_order(list_of_trades, account_hash):
     try:
         
         for trade in list_of_trades:
-            logger.info(f"Placing order for trade: {trade}")
             # Extract trade details
             contract_symbol = trade['contractSymbol']
             premium_per_contract = trade['premiumPerContract']
@@ -158,78 +116,11 @@ def place_order(list_of_trades, account_hash):
                     }
                 ]
             }
-            print(f"Order:\n {order}\n")
             # Place order using Schwab API
             response = schwab_client.order_place(account_hash,order)
 
     except Exception as e:
         logger.error(f"Error in place_order: {e}")
-        return None
-    
-def super_orchestrator(): 
-    
-    trade1 = temp_micro_orchestrator("AAPL")
-    trade2 = temp_micro_orchestrator("MSFT")
-    trade3 = temp_micro_orchestrator("GOOGL")
-    trade4 = temp_micro_orchestrator("AMZN")   
-    
-    list_of_best_trades = [trade1, trade2, trade3, trade4]
-    # Get available cash
-    available_cash,account_hash = get_schwab_available_cash()
-    available_cash = available_cash * 0.8 # Use 80% of available cash for trading
-    optimal_trades, diverse_trades = temp_macro_orchestrator(list_of_best_trades, available_cash)
-    
-    print(f"Optimal trades:\n {optimal_trades}")
-    print(f"Diverse trades:\n {diverse_trades}")
-    
-    trades_to_order = diverse_trades['selectedTrades']
-    place_order(trades_to_order, account_hash)
-    
-
-def temp_macro_orchestrator(list_of_best_trades, available_cash=800):
-    try:
-        payload = {
-            "bestTradesList": list_of_best_trades,
-            "availableCash": available_cash,
-        }
-        print(f"Payload: {payload}")
-        trades_to_make = optimal_trade_selection(payload)
-        diverse_trades = diversified_trade_selection(payload)
-        return trades_to_make, diverse_trades
-    except Exception as e:
-        logger.error(f"Error in orchestrator: {e}")
-        return None
-
-def temp_micro_orchestrator(ticker):
-    try:
-        fundamentals_and_events = get_ticker_events_and_fundamentals(ticker)
-        # logger.info(f"Fundamentals and Events for {ticker}: {fundamentals_and_events}")
-        # Get available cash
-        available_cash = get_schwab_available_cash()
-        # logger.info(f"Available Cash: {available_cash}")
-        # Get core quote
-        core_quote = get_core_quote(ticker)
-        # logger.info(f"Core Quote for {ticker}: {core_quote}")
-        # Get options chain
-        options_chain = get_options_chain({ticker: 440})
-        
-        # Get price history
-        price_history = get_price_history(ticker)
-        
-        payload = {
-            "symbol":ticker,
-            "quote": core_quote,
-            "optionsChain": options_chain,
-            "historicalPrices": price_history,
-            "fundamentals": fundamentals_and_events
-        }
-
-        best_trade = asyncio.run(micro_stock_options_analysis(payload))
-        
-        return best_trade
-    
-    except Exception as e:
-        logger.error(f"Error in orchestrator: {e}")
         return None
     
 def optimal_trade_selection(payload):
@@ -295,7 +186,6 @@ def optimal_trade_selection(payload):
         'selectedTrades': selected,
         'totalPremiumUsed': total_used
     }
-
 
 def diversified_trade_selection(payload, max_symbol_pct=0.5):
     # Budget
@@ -412,7 +302,7 @@ def _extract_contract_info(exp_map, contract_list) -> List[OptionContract]:
                 c["iv_stats"] = stats  # attach stats to each contract
     return contract_list
 
-def _parse_quote(json_response, ticker) -> CoreQuoteModel:
+def _parse_quote(json_response, ticker):
     try:
         last_price = json_response[ticker]['quote']['lastPrice']
         bid = json_response[ticker]['quote']['bidPrice']
