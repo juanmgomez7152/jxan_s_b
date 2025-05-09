@@ -130,6 +130,7 @@ class AiTools:
             response = client.responses.create(
                 model= MODEL_NAME,
                 temperature=0,
+                top_p=1,
                 tools= [{ "type": "web_search_preview",
                         "search_context_size": "medium",
                         "user_location":{"type":"approximate","country":"US","city":"Austin","region":"Austin","timezone":"America/Chicago"},

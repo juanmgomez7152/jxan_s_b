@@ -84,6 +84,7 @@ class SchwabTools:
                 # Extract trade details
                 contract_symbol = trade['contractSymbol']
                 premium_per_contract = trade['premiumPerContract']
+                stop_loss = premium_per_contract * 0.5
                 exit_premium = trade['exitPremium']
                 contracts_to_buy = trade['contractsToBuy']
                 
@@ -109,6 +110,58 @@ class SchwabTools:
                 }
                 # Place order using Schwab API
                 response = schwab_client.order_place(account_hash,order)
+                data = response.json()
+                logger.info(f"Order placed for {contract_symbol}: {data}")
+                # Place exit orders
+                try:
+                    stop_loss_order = {
+                        "orderType": "LIMIT",
+                        "session": "NORMAL",
+                        "price": stop_loss,
+                        'duration': "GOOD_TILL_CANCEL",
+                        "orderStrategyType": "SINGLE",
+                        "complexOrderStrategyType": "NONE",
+                        "orderLegCollection": [
+                            {
+                                "instruction": "SELL_TO_CLOSE",
+                    
+                                "quantity": contracts_to_buy,
+                                "instrument": {
+                                    "symbol": contract_symbol,
+                                    "assetType": "OPTION",
+                                }
+                            }
+                        ]
+                    }
+                    stop_loss_response = schwab_client.order_place(account_hash,stop_loss_order)
+                    if stop_loss_response.status_code != 200:
+                        Exception(f"Error placing stop loss order: {stop_loss_response.text}")
+                        
+                    exit_order = {
+                        "orderType": "LIMIT",
+                        "session": "NORMAL",
+                        "price": exit_premium,
+                        'duration': "GOOD_TILL_CANCEL",
+                        "orderStrategyType": "SINGLE",
+                        "complexOrderStrategyType": "NONE",
+                        "orderLegCollection": [
+                            {
+                                "instruction": "SELL_TO_CLOSE",
+                    
+                                "quantity": contracts_to_buy,
+                                "instrument": {
+                                    "symbol": contract_symbol,
+                                    "assetType": "OPTION",
+                                }
+                            }
+                        ]
+                    }
+                    stop_loss_response = schwab_client.order_place(account_hash,stop_loss_order)
+                    if stop_loss_response.status_code != 200:
+                        Exception(f"Error placing stop loss order: {stop_loss_response.text}")
+                except Exception as e:
+                    logger.error(f"Error in placing exit orders: {e}")
+                    continue
 
         except Exception as e:
             logger.error(f"Error in place_order: {e}")

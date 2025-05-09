@@ -1,4 +1,4 @@
-from app.agent import controller_schwab, AIStockAgent
+from app.agent import AIStockAgent
 import logging
 
 ai_stock_agent = AIStockAgent()
