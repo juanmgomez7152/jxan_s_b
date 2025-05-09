@@ -76,16 +76,8 @@ class SchwabTools:
             close_price = candle['close']
             hist_pr_list.append({'date': date, 'close': close_price})
         return hist_pr_list
-
-    def get_ticker_events_and_fundamentals(self, ticker):
-        try:
-            events = asyncio.run(get_ai_stock_events(ticker))
-            return events
-        except Exception as e:
-            logger.error(f"Error in get_ticker_events: {e}")
-            return None
         
-    def place_order(list_of_trades, account_hash):
+    def place_order(self,list_of_trades, account_hash):
         try:
             
             for trade in list_of_trades:
@@ -122,7 +114,7 @@ class SchwabTools:
             logger.error(f"Error in place_order: {e}")
             return None
         
-    def optimal_trade_selection(payload):
+    def optimal_trade_selection(self,payload):
         # Convert budget to cents
         budget_cents = int(round(payload['availableCash'] * 100))
         
@@ -186,7 +178,7 @@ class SchwabTools:
             'totalPremiumUsed': total_used
         }
 
-    def diversified_trade_selection(payload, max_symbol_pct=0.5):
+    def diversified_trade_selection(self, payload, max_symbol_pct=0.5):
         # Budget
         budget = payload['availableCash']
         
@@ -243,7 +235,7 @@ class SchwabTools:
             'totalPremiumUsed': total_used
         }
         
-    def _extract_contract_info(exp_map, contract_list):
+    def _extract_contract_info(self,exp_map, contract_list):
             # Collect contracts by expiration date
         expiration_contracts_map = {}
 
@@ -299,10 +291,10 @@ class SchwabTools:
                 }
                 for c in contracts_for_exp:
                     c["iv_stats"] = stats  # attach stats to each contract
-        _score_contracts(contract_list)
+        self._score_contracts(contract_list)
         return contract_list
 
-    def _score_contracts(contract_list):
+    def _score_contracts(self,contract_list):
         
         logger = logging.getLogger(__name__)
         
@@ -423,7 +415,7 @@ class SchwabTools:
         
         return contract_list
 
-    def _parse_quote(json_response, ticker):
+    def _parse_quote(self, json_response, ticker):
         try:
             last_price = json_response[ticker]['quote']['lastPrice']
             bid = json_response[ticker]['quote']['bidPrice']
