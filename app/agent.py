@@ -1,12 +1,128 @@
-from app.ai_stock_services import get_ai_stock_recommendations,micro_stock_options_analysis
-from app.schwab_services import get_ticker_events_and_fundamentals,get_schwab_available_cash,get_core_quote,get_price_history,get_options_chain,place_order,optimal_trade_selection,diversified_trade_selection
+from app.ai_stock_services import AiTools
+from app.schwab_services import SchwabTools
 from typing import Dict, List
+from datetime import datetime, timedelta
 import asyncio
 import logging
+import holidays
+import time
 
 logger = logging.getLogger(__name__)
+HOURS_TO_TRADE = [9, 10 ]
+DAYS_OF_WEEK_NOT_TO_TRADE = ["Mon", "Fri", "Sat", "Sun"]
+CALENDAR_DAY_NOT_TO_TRADE = [1,2,3,4,5,25,26,27,28,29,30,31] # 1st and last day of the month
+US_HOLIDAYS = ["New Year's Day","Martin Luther King Jr. Day", "Washington's Birthday","Good Friday","Memorial Day","Juneteenth National Independence Day","Independence Day","Labor Day","Thanksgiving Day","Christmas Day"]
+holidays_US = holidays.US()
 
-
+class AIStockAgent:
+    def __init__(self):
+        self.ai_tools = AiTools()
+        self.schwab_tools = SchwabTools()
+        logger.info("AIStockAgent initialized...")
+    
+    def run_ai_agent(self):
+        logger.info("Running AI agent...")
+        
+        self.get_into_trade_window()
+        
+        self.available_cash,self.account_hash = self.schwab_tools.get_available_cash()
+        
+        stocks_to_trade = asyncio.run(self.ai_tools.get_ai_stock_recommendations())
+    
+    def get_into_trade_window(self):
+        current_time = datetime.now()
+        
+        self.rest(current_time=current_time,function=self._check_beg_end_of_month)
+        self.rest(current_time=current_time,function=self._check_holiday)
+        self.rest(current_time=current_time,function=self._check_day_of_week_to_trade)
+        self.rest(current_time=current_time,function = self._check_hour_to_trade)
+    
+    def rest(self,current_time=None,function=None, sleep_seconds=None):
+        if function is None:
+            time.sleep(sleep_seconds)
+        else:
+            sleep_seconds = function(current_time)
+            while sleep_seconds is not None:
+                logger.info(f"Sleeping for {sleep_second/3600:.2f} hours until next trading window")
+                time.sleep(sleep_second)
+                current_time = datetime.now()
+                sleep_second = function(current_time)    
+    
+    def _check_beg_end_of_month(self, current_time):
+        # Check if today is the first or last day of the month
+        if current_time.day in CALENDAR_DAY_NOT_TO_TRADE:
+            logger.info(f"Not trading today ({current_time.strftime('%Y-%m-%d')})")
+            # Calculate time until next business day at 9 AM
+            next_run = current_time.replace(hour=9, minute=0, second=0, microsecond=0)
+            next_run = next_run + timedelta(days=1)
+            while next_run.day in CALENDAR_DAY_NOT_TO_TRADE:
+                next_run = next_run + timedelta(days=1)
+            sleep_seconds = (next_run - current_time).total_seconds()
+            return sleep_seconds
+        else:
+            return None
+    
+    def _check_holiday(self, current_time):
+        current_date = current_time.strftime('%Y-%m-%d')
+        if holidays_US.get(current_date) in US_HOLIDAYS:
+            logger.info(f"Today is a holiday: {holidays_US[current_date]}")
+            # Calculate time until next business day at 9 AM
+            next_run = current_time.replace(hour=9, minute=0, second=0, microsecond=0)
+            next_run = next_run + timedelta(days=1)
+            while next_run.strftime('%Y-%m-%d') in holidays_US:
+                next_run = next_run + timedelta(days=1)
+            sleep_seconds = (next_run - current_time).total_seconds()
+            return sleep_seconds
+        else:
+            return None
+    
+    def _check_day_of_week_to_trade(self, current_time):
+        day_name = current_time.strftime("%a")
+        if day_name not in ["Tue", "Wed", "Thu"]:
+            logger.info(f"Not trading today ({day_name})")
+            # Calculate time until next Tuesday 9 AM
+            now = current_time
+            days_ahead = {
+                'Mon': 1,
+                'Fri': 4, 
+                'Sat': 3,
+                'Sun': 2
+            }.get(day_name)
+            next_run = now.replace(hour=9, minute=0, second=0, microsecond=0)
+            next_run = next_run + timedelta(days=days_ahead)
+            sleep_seconds = (next_run - now).total_seconds()
+            return sleep_seconds
+        else:
+            return None
+    
+    def _check_hour_to_trade(self, current_time):
+        if current_time.hour>=9 and current_time.hour<10:
+            return True
+        else:
+            # Calculate time until 9 AM tomorrow
+            now = datetime.now()
+            next_run = now.replace(hour=9, minute=0, second=0, microsecond=0)
+            if now >= next_run:
+                next_run = next_run.replace(day=now.day + 1)
+            sleep_seconds = (next_run - now).total_seconds()
+            return sleep_seconds
+        
+    
+    def macro_analsysis(self, list_of_best_trades, available_cash):
+        pass
+    async def micro_analysis(self, ticker):
+        pass
+    
+    def _is_holiday(self, date):
+        # Check if the date is a holiday
+        if date in US_HOLIDAYS:
+            return True
+        
+        # Check if the date is a weekend
+        if date.weekday() >= 5:
+            logger.info(f"Today is a weekend day")
+            return True
+            
 def controller_schwab():
     print("Welcome to the Schwab API Controller")
     
@@ -17,15 +133,16 @@ def controller_schwab():
             case "1":
                 get_schwab_available_cash()
             case "2":
-                list_of_tickers = ["MSFT", "AAPL", "GOOGL"]
-                get_core_quote(list_of_tickers)
+                quote = get_core_quote("MSFT")
+                logger.info(f"Quote:\n {quote}")
             case "3":
                 dict_of_tickers: Dict[str, float] = {}
                 dict_of_tickers["MSFT"] = 440
                 # dict_of_tickers["AAPL"] = 190
                 # dict_of_tickers["GOOGL"] = 165
                 # dict_of_tickers["AMZN"] = 185
-                get_options_chain(dict_of_tickers)
+                option_chain = get_options_chain(dict_of_tickers)
+                logger.info(f"Option Chain:\n {option_chain}")
             case "4":
                 ticker = "AAPL"
                 get_price_history(ticker)
@@ -46,6 +163,7 @@ def controller_schwab():
                 place_order(list_of_trades,account_hash)
             case "10":
                 candidates = asyncio.run(get_ai_stock_recommendations())
+                logger.info(f"Candidates: {candidates}")
             case "x":
                 print("Exiting...")
                 terminar = False
@@ -54,7 +172,7 @@ def controller_schwab():
                 
 def super_orchestrator(): 
     # candidates = asyncio.run(get_ai_stock_recommendations())
-    candidates = ["AAPL", "MSFT", "GOOGL"]
+    candidates = ["AAPL"]
     list_of_best_trades = []
     # ********************************************************************
     # This needs to be async and concurrent
@@ -67,24 +185,27 @@ def super_orchestrator():
     # Get available cash
     available_cash,account_hash = get_schwab_available_cash()
     available_cash = available_cash * 0.8 # Use 80% of available cash for trading
-    logger.info(f"# of trades originally: {len(list_of_best_trades)}")
-    list_of_best_trades = [trade for trade in list_of_best_trades if trade.get('score', 0) >= 7.5]
+    list_of_best_trades.sort(key=lambda x: x.get('score', 0), reverse=True)
+    # list_of_best_trades = [trade for trade in list_of_best_trades if trade.get('score', 0) >= 7.5]
     logger.info(f"# of trades after filtering: {len(list_of_best_trades)}")
-    for trade in list_of_best_trades:
-        logger.info(f"Trade: \n{trade}")
-    if not list_of_best_trades:
-        logger.info("No trades met the minimum score threshold of 8.0")
-        logger.info("Sentiment analysis: No trades to execute.")
-        return
+    
     diverse_trades = temp_macro_orchestrator(list_of_best_trades, available_cash)
     
     trades_to_order = diverse_trades['selectedTrades']
+    possible_profit = 0
+    total_cost = 0
     for trade in trades_to_order:
         logger.info(f"Trade to order: \n{trade}")
+        total_cost = total_cost + (trade['premiumPerContract']*100*trade['contractsToBuy'])
+        possible_profit = possible_profit + (trade['exitPremium']*100*trade['contractsToBuy'] - trade['premiumPerContract']*100*trade['contractsToBuy'])
+    possible_profit = round(possible_profit, 2)
+    logger.info(f"Possible profit: {possible_profit}")
+        
+        
     # place_order(trades_to_order, account_hash)
     
 
-def temp_macro_orchestrator(list_of_best_trades, available_cash=800):
+def temp_macro_orchestrator(list_of_best_trades, available_cash):
     try:
         payload = {
             "bestTradesList": list_of_best_trades,
@@ -94,7 +215,7 @@ def temp_macro_orchestrator(list_of_best_trades, available_cash=800):
         diverse_trades = diversified_trade_selection(payload)
         return diverse_trades
     except Exception as e:
-        logger.error(f"Error in orchestrator: {e}")
+        logger.error(f"Error in macro orchestrator: {e}")
         return None
 
 def temp_micro_orchestrator(ticker):
@@ -115,7 +236,7 @@ def temp_micro_orchestrator(ticker):
             "historicalPrices": price_history,
             "fundamentals": fundamentals_and_events
         }
-
+        
         best_trade = asyncio.run(micro_stock_options_analysis(payload))
         
         return best_trade
@@ -123,5 +244,4 @@ def temp_micro_orchestrator(ticker):
     except Exception as e:
         logger.error(f"Error in micro orchestrator: {e}")
         return None
-    
     
