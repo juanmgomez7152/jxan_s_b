@@ -20,7 +20,7 @@ class AIStockAgent:
     def run_ai_agent(self):
         logger.info("Running AI agent...")
         current_time = datetime.now()
-        # self.trading_scheduling_tools.get_into_trade_window(current_time=current_time)
+        self.trading_scheduling_tools.get_into_trade_window(current_time=current_time)
         
         self.available_cash = self.schwab_tools.get_schwab_available_cash()
         if self.available_cash < 200:
@@ -40,17 +40,13 @@ class AIStockAgent:
         reduced_available_cash = self.available_cash * 0.8
         selected_trades = (self.macro_analsysis(list_of_best_trades, reduced_available_cash))["selectedTrades"]
 
-        order_status = []
-        # Run the async function and filter out None results
-        for trade in asyncio.run(self._process_all_orders(selected_trades)):
-            if trade is not None:
-                order_status.append(trade)
+        # Similar to how you handle list_of_best_trades
+        order_status = [trade for trade in asyncio.run(self._process_all_orders(selected_trades)) if trade is not None]
         
         logger.info("AI Agent run completed. Sleeping until next trading window...")
         self.trading_scheduling_tools.sleep_until_next_trading_window(current_time=current_time)
         
         self.email_handler.send_trade_notification(selected_trades)
-        self.run_ai_agent()
     
     def macro_analsysis(self, list_of_best_trades, available_cash):
         try:
