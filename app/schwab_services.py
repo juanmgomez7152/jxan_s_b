@@ -25,12 +25,12 @@ class SchwabTools:
         
     def get_schwab_available_cash(self):
         account = ((schwab_client.account_details_all()).json())[0]
-        account_hash = ((schwab_client.account_linked()).json())[0]['hashValue']
+        self.account_hash = ((schwab_client.account_linked()).json())[0]['hashValue']
         
         account_id = account['securitiesAccount']['accountNumber']
         available_cash = account['securitiesAccount']['currentBalances']['availableFunds']
         
-        return available_cash,account_hash
+        return available_cash
 
     def get_core_quote(self,ticker):
         response = schwab_client.quotes(ticker)#can send a list of tickers to get multiple quotes
@@ -77,91 +77,96 @@ class SchwabTools:
             hist_pr_list.append({'date': date, 'close': close_price})
         return hist_pr_list
         
-    def place_order(self,list_of_trades, account_hash):
+    async def place_order(self,trade):
         try:
+            # Extract trade details
+            contract_symbol = trade['contractSymbol']
+            premium_per_contract = trade['premiumPerContract']
+            stop_loss = round(premium_per_contract * 0.5,2)
+            exit_premium = trade['exitPremium']
+            contracts_to_buy = trade['contractsToBuy']
             
-            for trade in list_of_trades:
-                # Extract trade details
-                contract_symbol = trade['contractSymbol']
-                premium_per_contract = trade['premiumPerContract']
-                stop_loss = premium_per_contract * 0.5
-                exit_premium = trade['exitPremium']
-                contracts_to_buy = trade['contractsToBuy']
-                
-                
-                order = {
-                    "orderType": "LIMIT",
-                    "session": "NORMAL",
-                    "price": premium_per_contract,
-                    'duration': "GOOD_TILL_CANCEL",
-                    "orderStrategyType": "SINGLE",
-                    "complexOrderStrategyType": "NONE",
-                    "orderLegCollection": [
-                        {
-                            "instruction": "BUY_TO_OPEN",
-                
-                            "quantity": contracts_to_buy,
-                            "instrument": {
-                                "symbol": contract_symbol,
-                                "assetType": "OPTION",
-                            }
+            
+            order = {
+                "orderType": "LIMIT",
+                "session": "NORMAL",
+                "price": premium_per_contract,
+                'duration': "DAY",
+                "orderStrategyType": "SINGLE",
+                "complexOrderStrategyType": "NONE",
+                "orderLegCollection": [
+                    {
+                        "instruction": "BUY_TO_OPEN",
+            
+                        "quantity": contracts_to_buy,
+                        "instrument": {
+                            "symbol": contract_symbol,
+                            "assetType": "OPTION",
                         }
-                    ]
+                    }
+                ]
+            }
+            # Place order using Schwab API
+            response = schwab_client.order_place(self.account_hash,order)
+            if response.status_code != 201:
+                raise Exception(f"Error placing order: {response.text}")
+            else:
+                return {
+                    "status": "success",
+                    "ticker": trade['symbol'],
+                    "contract_symbol": contract_symbol,
+                    "quantity": contracts_to_buy,
                 }
-                # Place order using Schwab API
-                response = schwab_client.order_place(account_hash,order)
-                data = response.json()
-                logger.info(f"Order placed for {contract_symbol}: {data}")
-                # Place exit orders
-                try:
-                    stop_loss_order = {
-                        "orderType": "LIMIT",
-                        "session": "NORMAL",
-                        "price": stop_loss,
-                        'duration': "GOOD_TILL_CANCEL",
-                        "orderStrategyType": "SINGLE",
-                        "complexOrderStrategyType": "NONE",
-                        "orderLegCollection": [
-                            {
-                                "instruction": "SELL_TO_CLOSE",
+                # return order_status
+            # Place exit orders - can only take place after removing Margin from the account
+            # Place OCO order for exit
+            # try:
+            #     oco_order = { 
+            #             "orderStrategyType": "OCO", 
+            #             "childOrderStrategies": [ 
+            #             { 
+            #                 "orderType": "LIMIT", 
+            #                 "session": "NORMAL", 
+            #                 "price": exit_premium, 
+            #                 "duration": "GOOD_TILL_CANCEL", 
+            #                 "orderStrategyType": "SINGLE", 
+            #                 "orderLegCollection": [ 
+            #                     { 
+            #                         "instruction": "SELL_TO_CLOSE", 
+            #                         "quantity": contracts_to_buy, 
+            #                         "instrument": { 
+            #                             "symbol": contract_symbol, 
+            #                             "assetType": "OPTION"
+            #                         } 
+            #                     } 
+            #                 ] 
+            #             }, 
+            #             { 
+            #                 "orderType": "STOP_LIMIT", 
+            #                 "session": "NORMAL", 
+            #                 "price": stop_loss, 
+            #                 "stopPrice": stop_loss+0.03, 
+            #                 "duration": "GOOD_TILL_CANCEL", 
+            #                 "orderStrategyType": "SINGLE", 
+            #                 "orderLegCollection": [ 
+            #                     { 
+            #                         "instruction": "SELL_TO_CLOSE", 
+            #                         "quantity": contracts_to_buy, 
+            #                         "instrument": { 
+            #                             "symbol": contract_symbol, 
+            #                             "assetType": "OPTION" 
+            #                         } 
+            #                     } 
+            #                 ] 
+            #             } 
+            #             ] 
+            #             }
+            #     oco_response = schwab_client.order_place(account_hash,oco_order)
+            #     if oco_response.status_code != 200:
+            #         raise Exception(f"Error placing stop loss order: {oco_response.text}")
                     
-                                "quantity": contracts_to_buy,
-                                "instrument": {
-                                    "symbol": contract_symbol,
-                                    "assetType": "OPTION",
-                                }
-                            }
-                        ]
-                    }
-                    stop_loss_response = schwab_client.order_place(account_hash,stop_loss_order)
-                    if stop_loss_response.status_code != 200:
-                        Exception(f"Error placing stop loss order: {stop_loss_response.text}")
-                        
-                    exit_order = {
-                        "orderType": "LIMIT",
-                        "session": "NORMAL",
-                        "price": exit_premium,
-                        'duration': "GOOD_TILL_CANCEL",
-                        "orderStrategyType": "SINGLE",
-                        "complexOrderStrategyType": "NONE",
-                        "orderLegCollection": [
-                            {
-                                "instruction": "SELL_TO_CLOSE",
-                    
-                                "quantity": contracts_to_buy,
-                                "instrument": {
-                                    "symbol": contract_symbol,
-                                    "assetType": "OPTION",
-                                }
-                            }
-                        ]
-                    }
-                    stop_loss_response = schwab_client.order_place(account_hash,stop_loss_order)
-                    if stop_loss_response.status_code != 200:
-                        Exception(f"Error placing stop loss order: {stop_loss_response.text}")
-                except Exception as e:
-                    logger.error(f"Error in placing exit orders: {e}")
-                    continue
+            # except Exception as e:
+            #     logger.error(f"Error in placing exit orders: {e}")
 
         except Exception as e:
             logger.error(f"Error in place_order: {e}")
