@@ -11,6 +11,13 @@ MODEL_NAME = "gpt-4.1"
 client = OpenAI()
 client.api_key = os.getenv("OPENAI_API_KEY")
 
+with open("app/resources/prompts/micro_analysis_system.txt", encoding="utf-8") as f:
+    micro_analysis_system_mesage = f.read()
+with open("app/resources/prompts/stock_recommendations_system.txt", encoding="utf-8") as f:
+    stock_recommendations_system_mesage = f.read()
+with open("app/resources/prompts/stock_recommendations_user.txt", encoding="utf-8") as f:
+    stock_recommendations_user_mesage = f.read()
+
 class AiTools:
     async def get_ai_stock_recommendations(self):
         try:
@@ -23,25 +30,12 @@ class AiTools:
                         "user_location":{"type":"approximate","country":"US","city":"Austin","region":"Austin","timezone":"America/Chicago"},
                         }],
                 input=[{
-                    "role":"system",
-                    "content": f"""
-                    You are a Market Scanner Agent.  
-                    Every day, you will:
-                    1. fetch the latest list of top stocks (e.g., top gainers, most active, highest volume).
-                    3. Return a JSON array `candidates` of tickers to feed into the options‐analysis pipeline. 
-
-                    Output Format (EXAMPLE):
-                        {{
-                            "candidates:["AAPL","MSFT","GOOGL","AMZN","TSLA","NFLX",...]
-                        }} 
-                    """
+                        "role":"system",
+                        "content": stock_recommendations_system_mesage
                     },
                     {
                         "role":"user",
-                        "content": f"""
-                        Fetch today’s top 10 most‐active U.S. equities from a reliable finance news site (e.g. CNBC, Yahoo Finance).
-                        Output the results in the JSON format specified above ONLY.
-                        """
+                        "content": stock_recommendations_user_mesage
                     }
                     
                     ]
@@ -63,29 +57,7 @@ class AiTools:
                 messages=[
                     {
                         "role": "system",
-                        "content": """
-                            You are a stock-options analysis agent specializing in selecting optimal trades.
-                            
-                            IMPORTANT: Each contract in the options chain already has a pre-calculated score between 0-10 
-                            that factors in:
-                            - 40%: Probability of Profit (via delta)
-                            - 20%: Expected ROI
-                            - 10%: Risk/Reward ratio
-                            - 10%: Theta decay drag
-                            - 10%: Liquidity score (bid-ask spread and open interest)
-                            - 10%: IV cheapness (relative to expiration date average)
-                            
-                            YOUR TASK:
-                            1. Review the options chain in the payload
-                            2. Select the contract with the highest score as your primary recommendation
-                            3. Consider market context from fundamentals and events when finalizing your recommendation
-                            4. Return the highest-scoring contract that aligns with the current market environment
-                            5. Maintain the provided score from the contract rather than creating your own
-                            
-                            - Hold period: Typically 2-14 day positions
-                            - Always output a valid JSON matching the provided schema
-                            - Do not hallucinate data not present in the payload
-                    """
+                        "content": micro_analysis_system_mesage
                     },
                     {
                         "role": "user",
@@ -119,6 +91,7 @@ class AiTools:
             #                     Score (0–10) is computed as: 40% Probability of Profit (chance the option finishes ITM), 20% Expected ROI ((E[payoff]–premium)/premium), 10% Risk/Reward ratio ((POP/(1–POP))×ROI), 10% Theta‐decay drag (|Θ|×days-held/premium), 10% Liquidity score (inverse bid-ask spread × √(OI/OI_ref)), and 10% IV cheapness ((mean_IV–IV_today)/std_IV mapped to [0,1]).
             recommendation = responses.choices[0].message.content
             json_rec = json.loads(recommendation)
+            #add the score from the payload to the json_rec
             return json_rec
             
         except Exception as e:
@@ -180,7 +153,7 @@ class AiTools:
                     
                     ]
             )
-            # Extract and parse the JSON
+            
             pattern = r'```json\s*(.*?)\s*```'
             match = re.search(pattern, response.output_text, re.DOTALL)
             if not match:

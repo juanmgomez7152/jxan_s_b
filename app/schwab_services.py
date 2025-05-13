@@ -21,7 +21,8 @@ global account_id
 
 class SchwabTools:
     def __init__(self):
-        self.available_cash,self.account_hash = self.get_schwab_available_cash()
+        self.account_hash = None
+        self.available_cash = self.get_schwab_available_cash()
         
     def get_schwab_available_cash(self):
         account = ((schwab_client.account_details_all()).json())[0]
@@ -114,63 +115,77 @@ class SchwabTools:
                 return {
                     "status": "success",
                     "ticker": trade['symbol'],
+                    "premium_per_contract": premium_per_contract,
                     "contract_symbol": contract_symbol,
                     "quantity": contracts_to_buy,
                 }
-                # return order_status
-            # Place exit orders - can only take place after removing Margin from the account
-            # Place OCO order for exit
-            # try:
-            #     oco_order = { 
-            #             "orderStrategyType": "OCO", 
-            #             "childOrderStrategies": [ 
-            #             { 
-            #                 "orderType": "LIMIT", 
-            #                 "session": "NORMAL", 
-            #                 "price": exit_premium, 
-            #                 "duration": "GOOD_TILL_CANCEL", 
-            #                 "orderStrategyType": "SINGLE", 
-            #                 "orderLegCollection": [ 
-            #                     { 
-            #                         "instruction": "SELL_TO_CLOSE", 
-            #                         "quantity": contracts_to_buy, 
-            #                         "instrument": { 
-            #                             "symbol": contract_symbol, 
-            #                             "assetType": "OPTION"
-            #                         } 
-            #                     } 
-            #                 ] 
-            #             }, 
-            #             { 
-            #                 "orderType": "STOP_LIMIT", 
-            #                 "session": "NORMAL", 
-            #                 "price": stop_loss, 
-            #                 "stopPrice": stop_loss+0.03, 
-            #                 "duration": "GOOD_TILL_CANCEL", 
-            #                 "orderStrategyType": "SINGLE", 
-            #                 "orderLegCollection": [ 
-            #                     { 
-            #                         "instruction": "SELL_TO_CLOSE", 
-            #                         "quantity": contracts_to_buy, 
-            #                         "instrument": { 
-            #                             "symbol": contract_symbol, 
-            #                             "assetType": "OPTION" 
-            #                         } 
-            #                     } 
-            #                 ] 
-            #             } 
-            #             ] 
-            #             }
-            #     oco_response = schwab_client.order_place(account_hash,oco_order)
-            #     if oco_response.status_code != 200:
-            #         raise Exception(f"Error placing stop loss order: {oco_response.text}")
-                    
-            # except Exception as e:
-            #     logger.error(f"Error in placing exit orders: {e}")
 
         except Exception as e:
             logger.error(f"Error in place_order: {e}")
             return None
+    
+    async def place_exit_oco_order(self,trade):
+        stop_loss = round(trade['premium_per_contract'] * 0.5,2)
+        exit_premium = trade['exitPremium']
+        quantatity = trade['quantity']
+        contract_symbol = trade['contract_symbol']
+        try:
+            oco_order = { 
+                    "orderStrategyType": "OCO", 
+                    "childOrderStrategies": [ 
+                    { 
+                        "orderType": "LIMIT", 
+                        "session": "NORMAL", 
+                        "price": exit_premium, 
+                        "duration": "GOOD_TILL_CANCEL", 
+                        "orderStrategyType": "SINGLE", 
+                        "orderLegCollection": [ 
+                            { 
+                                "instruction": "SELL_TO_CLOSE", 
+                                "quantity": quantatity, 
+                                "instrument": { 
+                                    "symbol": contract_symbol, 
+                                    "assetType": "OPTION"
+                                } 
+                            } 
+                        ] 
+                    }, 
+                    { 
+                        "orderType": "STOP_LIMIT", 
+                        "session": "NORMAL", 
+                        "price": stop_loss, 
+                        "stopPrice": stop_loss+0.03, 
+                        "duration": "GOOD_TILL_CANCEL", 
+                        "orderStrategyType": "SINGLE", 
+                        "orderLegCollection": [ 
+                            { 
+                                "instruction": "SELL_TO_CLOSE", 
+                                "quantity": quantatity, 
+                                "instrument": { 
+                                    "symbol": contract_symbol, 
+                                    "assetType": "OPTION" 
+                                } 
+                            } 
+                        ] 
+                    } 
+                    ] 
+                    }
+            oco_response = schwab_client.order_place(self.account_hash,oco_order)
+            if oco_response.status_code != 201:
+                raise Exception(f"Error placing stop loss order: {oco_response.text}")
+            else:
+                return {
+                    "status": "success",
+                    "ticker": trade['symbol'],
+                    "premium_per_contract": trade['premium_per_contract'],
+                    "contract_symbol": contract_symbol,
+                    "quantity": quantatity,
+                }
+                
+        except Exception as e:
+            logger.error(f"Error in placing exit orders: {e}")
+            return None    
+        
         
     def optimal_trade_selection(self,payload):
         # Convert budget to cents

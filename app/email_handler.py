@@ -52,7 +52,7 @@ class EmailHandler:
         
         body = f"{title}\n{message}"
         
-        self._send_email(subject, body, is_html=True)
+        self.send_email(subject, body, is_html=True)
     
     def send_error_notification(self, error_message):
         """Send notification about errors in the trading system"""

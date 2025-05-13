@@ -34,19 +34,21 @@ class AIStockAgent:
         
         stocks_to_trade = asyncio.run(self.ai_tools.get_ai_stock_recommendations())
         
-        # Run the async function and filter out None results
         list_of_best_trades = [trade for trade in asyncio.run(self._process_all_tickers(stocks_to_trade)) if trade is not None]
 
         reduced_available_cash = self.available_cash * 0.8
-        selected_trades = (self.macro_analsysis(list_of_best_trades, reduced_available_cash))["selectedTrades"]
-
-        # Similar to how you handle list_of_best_trades
+        selected_trades = (self.macro_analsysis(list_of_best_trades, reduced_available_cash))['selectedTrades']
+        
         order_status = [trade for trade in asyncio.run(self._process_all_orders(selected_trades)) if trade is not None]
+        # TODO:Check if all of the orders that were placed were successful have been filled from Schwab
+        
+        # If orders have been filled, place the exit order
+        exit_order_status = [trade for trade in asyncio.run(self._process_all_exits(selected_trades)) if trade is not None]
+            
+        self.email_handler.send_trade_notification(selected_trades)
         
         logger.info("AI Agent run completed. Sleeping until next trading window...")
         self.trading_scheduling_tools.sleep_until_next_trading_window(current_time=current_time)
-        
-        self.email_handler.send_trade_notification(selected_trades)
     
     def macro_analsysis(self, list_of_best_trades, available_cash):
         try:
@@ -54,20 +56,26 @@ class AIStockAgent:
                 "bestTradesList": list_of_best_trades,
                 "availableCash": available_cash,
             }
-            # trades_to_make = self.schwab_tools.optimal_trade_selection(payload)
+            # optimal_trades = self.schwab_tools.optimal_trade_selection(payload)
             diverse_trades = self.schwab_tools.diversified_trade_selection(payload)
             return diverse_trades
         
         except Exception as e:
             logger.error(f"Error in macro analysis: {e}")
             return None
+        
     async def _process_all_orders(self,selected_trades):
             tasks = [self.schwab_tools.place_order(trade) for trade in selected_trades]
             return await asyncio.gather(*tasks)
+
+    async def _process_all_exits(self, trades):
+        tasks = [self.schwab_tools.place_exit_oco_order(trade) for trade in trades]
+        return await asyncio.gather(*tasks)
     
     async def _process_all_tickers(self, stocks_to_trade):
         tasks = [self.micro_analysis(ticker) for ticker in stocks_to_trade]
         return await asyncio.gather(*tasks)
+    
     async def micro_analysis(self, ticker):
         try:
             fundamentals_and_events = await self.ai_tools.get_ai_stock_events(ticker)
