@@ -83,7 +83,8 @@ class SchwabTools:
             # Extract trade details
             contract_symbol = trade['contractSymbol']
             premium_per_contract = trade['premiumPerContract']
-            stop_loss = round(premium_per_contract * 0.5,2)
+            stop_loss = trade['stop_loss']
+            stop_price = trade['stop_price']
             exit_premium = trade['exitPremium']
             contracts_to_buy = trade['contractsToBuy']
             
@@ -113,19 +114,20 @@ class SchwabTools:
                 raise Exception(f"Error placing order: {response.text}")
             else:
                 return {
-                    "status": "success",
-                    "ticker": trade['symbol'],
                     "premium_per_contract": premium_per_contract,
                     "contract_symbol": contract_symbol,
                     "quantity": contracts_to_buy,
+                    "stop_loss": stop_loss,
+                    "stop_price": stop_price,
                 }
 
         except Exception as e:
             logger.error(f"Error in place_order: {e}")
             return None
     
-    async def place_exit_oco_order(self,trade):
-        stop_loss = round(trade['premium_per_contract'] * 0.5,2)
+    async def _place_exit_oco_order(self,trade):
+        stop_loss = trade['stop_loss']
+        stop_price = trade['stop_price']
         exit_premium = trade['exitPremium']
         quantatity = trade['quantity']
         contract_symbol = trade['contract_symbol']
@@ -154,7 +156,7 @@ class SchwabTools:
                         "orderType": "STOP_LIMIT", 
                         "session": "NORMAL", 
                         "price": stop_loss, 
-                        "stopPrice": stop_loss+0.03, 
+                        "stopPrice": stop_price, 
                         "duration": "GOOD_TILL_CANCEL", 
                         "orderStrategyType": "SINGLE", 
                         "orderLegCollection": [ 
@@ -173,20 +175,46 @@ class SchwabTools:
             oco_response = schwab_client.order_place(self.account_hash,oco_order)
             if oco_response.status_code != 201:
                 raise Exception(f"Error placing stop loss order: {oco_response.text}")
-            else:
-                return {
-                    "status": "success",
-                    "ticker": trade['symbol'],
-                    "premium_per_contract": trade['premium_per_contract'],
-                    "contract_symbol": contract_symbol,
-                    "quantity": quantatity,
-                }
                 
         except Exception as e:
             logger.error(f"Error in placing exit orders: {e}")
             return None    
+    
+    async def monitor_orders(self,payload):
+        current_date = datetime.now().date()
+        contract_symbol = payload['contract_symbol']
+        try:
+            while True:
+                filtered_filled_buy_data, filtered_filled_sell_data, filtered_working_data = self._get_status_lists(current_date)
+                
+                filled_b_order_found = any(payload['contract_symbol'] == order['orderLegCollection'][0]['instrument']['symbol'] for order in filtered_filled_buy_data)
+                if filled_b_order_found:#if the order is filled, place the exit order
+                    continue
+                filled_s_order_found = any(payload['contract_symbol'] == order['orderLegCollection'][0]['instrument']['symbol'] for order in filtered_filled_sell_data)
+                if filled_s_order_found: #if the exit order is filled, break the loop
+                    break
+                working_order_found = any(contract_symbol == order['orderLegCollection'][0]['instrument']['symbol'] for order in filtered_working_data)
+                if not working_order_found: #if the order is filled, theres no exit order filled, and the order to close has not been placed
+                   self._place_exit_oco_order(payload)
+                   break
+            return {"Success": True,
+                    "Contract_Symbol": contract_symbol}
+        except Exception as e:
+            logger.error(f"Error in monitor_orders: {e}")
+            return {"Success": False,
+                    "Contract_Symbol": contract_symbol}
+            
+    def _get_status_lists(self, date):
+        response = schwab_client.account_orders(self.account_hash, date,date, status="FILLED")
+        filled_data = response.json()
+        filtered_filled_b_data = [order for order in filled_data if order['orderLegCollection'][0]['instruction'] == "BUY_TO_OPEN"]
+        filtered_filled_s_data = [order for order in filled_data if order['orderLegCollection'][0]['instruction'] == "SELL_TO_CLOSE"]
+        response = schwab_client.account_orders(self.account_hash, date,date, status="WORKING")
+        working_data = response.json()
+        filtered_working_data = [order for order in working_data if order['orderLegCollection'][0]['instruction'] == "SELL_TO_CLOSE"]
         
-        
+        return filtered_filled_b_data, filtered_filled_s_data, filtered_working_data
+    
     def optimal_trade_selection(self,payload):
         # Convert budget to cents
         budget_cents = int(round(payload['availableCash'] * 100))
@@ -299,6 +327,8 @@ class SchwabTools:
                     'expirationDate': trade['expirationDate'],
                     'premiumPerContract': trade['premiumPerContract'],
                     'exitPremium': round((trade['premiumPerContract'])*1.3, 2),
+                    'stop_loss': round((trade['premiumPerContract'])*0.5, 2),
+                    'stop_price': round((trade['premiumPerContract'])*0.5, 2) + 0.03,
                     'score': trades[i]['score'],
                     'contractsToBuy': count
                 })

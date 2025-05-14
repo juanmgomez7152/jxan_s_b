@@ -5,7 +5,7 @@ from app.email_handler import EmailHandler
 from datetime import datetime
 import asyncio
 import logging
-import json
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -19,8 +19,6 @@ class AIStockAgent:
     
     def run_ai_agent(self):
         logger.info("Running AI agent...")
-        current_time = datetime.now()
-        self.trading_scheduling_tools.get_into_trade_window(current_time=current_time)
         
         self.available_cash = self.schwab_tools.get_schwab_available_cash()
         if self.available_cash < 200:
@@ -28,7 +26,6 @@ class AIStockAgent:
             self.email_handler._send_email(
                 subject="Stock Bot: Low Cash Alert",
                 body="Your Stock Bot has less than $200 available cash. It will not execute trades until the next trading window. Please check that there are no hazards.",)
-            self.trading_scheduling_tools.sleep_until_next_trading_window(current_time=current_time)
         else:
             logger.info(f"Available cash: {self.available_cash}")
         
@@ -39,16 +36,13 @@ class AIStockAgent:
         reduced_available_cash = self.available_cash * 0.8
         selected_trades = (self.macro_analsysis(list_of_best_trades, reduced_available_cash))['selectedTrades']
         
-        order_status = [trade for trade in asyncio.run(self._process_all_orders(selected_trades)) if trade is not None]
-        # TODO:Check if all of the orders that were placed were successful have been filled from Schwab
+        refined_order_placed = [trade for trade in asyncio.run(self._process_all_orders(selected_trades)) if trade is not None]
         
-        # If orders have been filled, place the exit order
-        exit_order_status = [trade for trade in asyncio.run(self._process_all_exits(selected_trades)) if trade is not None]
+        exit_order_status = [trade for trade in asyncio.run(self._process_all_exits(refined_order_placed)) if trade is not None]
             
         self.email_handler.send_trade_notification(selected_trades)
         
         logger.info("AI Agent run completed. Sleeping until next trading window...")
-        self.trading_scheduling_tools.sleep_until_next_trading_window(current_time=current_time)
     
     def macro_analsysis(self, list_of_best_trades, available_cash):
         try:
@@ -69,7 +63,7 @@ class AIStockAgent:
             return await asyncio.gather(*tasks)
 
     async def _process_all_exits(self, trades):
-        tasks = [self.schwab_tools.place_exit_oco_order(trade) for trade in trades]
+        tasks = [self.schwab_tools.monitor_orders(trade) for trade in trades]
         return await asyncio.gather(*tasks)
     
     async def _process_all_tickers(self, stocks_to_trade):
