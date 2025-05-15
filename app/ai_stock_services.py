@@ -23,7 +23,7 @@ class AiTools:
     async def get_ai_stock_recommendations(self):
         try:
             response = client.responses.parse(
-                model=MODEL_NAME,
+                model=CHEAP_MODEL_NAME,
                 temperature=0,
                 top_p=1,
                 tools=[
@@ -112,7 +112,7 @@ class AiTools:
     async def get_ai_stock_events(self,ticker):
         try:
             response = client.responses.parse(
-                model=MODEL_NAME,
+                model=CHEAP_MODEL_NAME,
                 temperature=0,
                 top_p=1,
                 tools=[

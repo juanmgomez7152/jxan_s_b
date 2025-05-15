@@ -28,23 +28,28 @@ class EmailHandler:
         """
         message = ""
         for trade_info in trades:
-            premium = trade_info.get('premiumPerContract')
-            number_of_contracts = trade_info.get('contractsToBuy')
-            total_cost = round(premium*number_of_contracts*100,2)
-            possible_profit = round((trade_info.get('exitPremium') - premium)*number_of_contracts,2)*100
-            possible_loss = round((premium*0.5)*number_of_contracts,2)*100
+            contract_symbol = trade_info.get('contract_symbol')
+            ticker = trade_info.get('ticker')
+            type = trade_info.get('type')
+            premium = trade_info.get('premium')
+            quantity = trade_info.get('quantity')
+            exit_premium = trade_info.get('exit_premium')
+            stop_loss = trade_info.get('stop_loss')
+            total_cost = trade_info.get('total_cost')
+            total_profit = trade_info.get('total_profit')
+            total_loss = trade_info.get('total_loss')
             trade = f"""
                 <ul>
-                    <li><strong>Symbol:</strong> {trade_info.get('symbol')}</li>
-                    <li><strong>Contract:</strong> {trade_info.get('contractSymbol')}</li>
-                    <li><strong>Type:</strong> {trade_info.get('type')}</li>
-                    <li><strong>Strike Price:</strong> ${trade_info.get('strikePrice')}</li>
+                    <li><strong>Symbol:</strong> {ticker}</li>
+                    <li><strong>Contract:</strong> {contract_symbol}</li>
+                    <li><strong>Type:</strong> {type}</li>
                     <li><strong>Premium per Contract:</strong> ${premium}</li>
-                    <li><strong>Expiration:</strong> {trade_info.get('expirationDate')}</li>
-                    <li><strong>Quantity:</strong> {number_of_contracts}</li>
-                    <li><strong>Total Cost:</strong> ${total_cost}</li>
-                    <h2><strong>Possible Total Profit:</strong><span style="color: green;"> ${possible_profit}</span></h2>
-                    <h2><strong>Possible Total Loss:</strong><span style="color: red;"> ${possible_loss}</span></h2>
+                    <li><strong>Exit Premium:</strong> ${exit_premium}</li>
+                    <li><strong>Stop Loss:</strong> ${stop_loss}</li>
+                    <li><strong>Quantity:</strong> {quantity}</li>
+                    <h2><strong>Possible Total Cost:</strong> ${total_cost}</h2>
+                    <h2><strong>Possible Total Profit:</strong><span style="color: green;"> ${total_profit}</span></h2>
+                    <h2><strong>Acceptable Total Loss:</strong><span style="color: red;"> ${total_loss}</span></h2>
                     <hr style="border-top: 3px solid #bbb;">
                 </ul>
                 """
@@ -90,8 +95,7 @@ class EmailHandler:
                 server.starttls()  # Secure the connection
                 server.login(self.email_user, self.email_password)
                 server.send_message(message)
-                
-            logger.info(f"Email notification sent: {subject}")
+            
             return True
             
         except Exception as e:

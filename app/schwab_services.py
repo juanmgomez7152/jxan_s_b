@@ -106,14 +106,16 @@ class SchwabTools:
             }
             #******************
             # Place order using Schwab API
-            # response = schwab_client.order_place(self.account_hash,order)
-            # if response.status_code != 201:
-            #     raise Exception(f"Error placing order: {response.text}")
+            response = schwab_client.order_place(self.account_hash,order)
+            if response.status_code != 201:
+                raise Exception(f"Error placing order: {response.text}")
             #******************
             return {
                 "premium_per_contract": premium_per_contract,
                 "ticker": trade['symbol'],
+                "type": trade['type'],
                 "contract_symbol": contract_symbol,
+                "premium": premium_per_contract,
                 "exitPremium": exit_premium,
                 "quantity": contracts_to_buy,
                 "stop_loss": stop_loss,
@@ -180,9 +182,7 @@ class SchwabTools:
             return None    
     
     async def monitor_orders(self,payload):
-        payload = {'premium_per_contract': 0.61, 'ticker': 'GOOGL', 'contract_symbol': 'GOOGL 250523P00155000', 'exitPremium': 0.79, 'quantity': 2, 'stop_loss': 0.3, 'stop_price': 0.33}
         current_datetime = datetime.now()
-        current_date = datetime.now().date()
         contract_symbol = payload['contract_symbol']
         ticker = payload['ticker']
         try:
@@ -190,40 +190,44 @@ class SchwabTools:
                 filtered_filled_buy_data, filtered_filled_sell_data, filtered_working_data = self._get_status_lists(current_datetime)
                 
                 filled_b_order_found = any(payload['contract_symbol'] == order['orderLegCollection'][0]['instrument']['symbol'] for order in filtered_filled_buy_data)
-                if filled_b_order_found:#if the order is filled, place the exit order
+                filled_b_order_found = True
+                if not filled_b_order_found:#if the buy_to_open order is not filled check again immediately
                     continue
+                
                 filled_s_order_found = any(payload['contract_symbol'] == order['orderLegCollection'][0]['instrument']['symbol'] for order in filtered_filled_sell_data)
                 if filled_s_order_found: #if the exit order is filled, break the loop
                     break
+                
                 working_order_found = any(contract_symbol == order['orderLegCollection'][0]['instrument']['symbol'] for order in filtered_working_data)
                 if not working_order_found: #if the order is filled, theres no exit order filled, and the order to close has not been placed
-                   self._place_exit_oco_order(payload)
+                   await self._place_exit_oco_order(payload)
                    logger.info(f"Exit OCO order placed for {ticker}")
                    break
-            return {"Success": True,
-                    "Contract_Symbol": contract_symbol}
+            return {"success": True,
+                    "contract_symbol": contract_symbol,
+                    "ticker": ticker,
+                    "type": payload['type'],
+                    "premium": payload['premium'],
+                    "quantity": payload['quantity'],
+                    "exit_premium": payload['exitPremium'],
+                    "stop_loss": payload['stop_loss'],
+                    "total_cost": round(payload['premium'] * payload['quantity'],2)*100,
+                    "total_profit": round(payload['exitPremium'] * payload['quantity'] - payload['premium'] * payload['quantity'],2)*100,
+                    "total_loss": round(payload['premium'] * payload['quantity'] - payload['stop_loss'] * payload['quantity'],2)*100,}
         except Exception as e:
             logger.error(f"Error in monitor_orders: {e}")
-            return {"Success": False,
-                    "Contract_Symbol": contract_symbol}
+            return {"success": False,
+                    "contract_symbol": contract_symbol}
             
     def _get_status_lists(self, date):
         try:
             response = schwab_client.account_orders(self.account_hash, date,date)#get all orders for the day
             all_orders = response.json()
-            filled_buy_orders = [order for order in all_orders if order['orderLegCollection'][0]['instruction'] == "BUY_TO_OPEN" and order['orderLegCollection'][0]['orderStatus'] == "FILLED"]
-            filled_sell_orders = [order for order in all_orders if order['orderLegCollection'][0]['instruction'] == "SELL_TO_CLOSE" and order['orderLegCollection'][0]['orderStatus'] == "FILLED"]
-            working_orders = [order for order in all_orders if order['orderLegCollection'][0]['instruction'] == "SELL_TO_CLOSE" and order['orderLegCollection'][0]['orderStatus'] == "WORKING"]
+            filled_buy_orders = [order for order in all_orders if order['orderLegCollection'][0]['instruction'] == "BUY_TO_OPEN" and order['status'] == "FILLED"]
+            filled_sell_orders = [order for order in all_orders if order['orderLegCollection'][0]['instruction'] == "SELL_TO_CLOSE" and order['status'] == "FILLED"]
+            working_orders = [order for order in all_orders if order['orderLegCollection'][0]['instruction'] == "SELL_TO_CLOSE" and order['status'] == "WORKING"]
             
-            response = schwab_client.account_orders(self.account_hash, date,date, status="FILLED")
-            filled_data = response.json()
-            filtered_filled_b_data = [order for order in filled_data if order['orderLegCollection'][0]['instruction'] == "BUY_TO_OPEN"]
-            filtered_filled_s_data = [order for order in filled_data if order['orderLegCollection'][0]['instruction'] == "SELL_TO_CLOSE"]
-            response = schwab_client.account_orders(self.account_hash, date,date, status="WORKING")
-            working_data = response.json()
-            filtered_working_data = [order for order in working_data if order['orderLegCollection'][0]['instruction'] == "SELL_TO_CLOSE"]
-            
-            return filtered_filled_b_data, filtered_filled_s_data, filtered_working_data
+            return filled_buy_orders, filled_sell_orders, working_orders
         except Exception as e:
             logger.error(f"Error in _get_status_lists: {e}")
             return [], [], []
@@ -321,7 +325,7 @@ class SchwabTools:
             ]) <= max_symbol_pct * budget
         
         # Solve
-        prob.solve()
+        prob.solve(pulp.PULP_CBC_CMD(msg=0))
         
         # Build result
         selected = []
@@ -341,7 +345,7 @@ class SchwabTools:
                     'premiumPerContract': trade['premiumPerContract'],
                     'exitPremium': round((trade['premiumPerContract'])*1.3, 2),
                     'stop_loss': round((trade['premiumPerContract'])*0.5, 2),
-                    'stop_price': round((trade['premiumPerContract'])*0.5 + 0.03, 2),
+                    'stop_price': round((trade['premiumPerContract'])*0.5 + 0.02, 2),
                     'score': trades[i]['score'],
                     'contractsToBuy': count
                 })
