@@ -18,31 +18,32 @@ class AIStockAgent:
         logger.info("AIStockAgent initialized...")
     
     def run_ai_agent(self):
-        logger.info("Running AI agent...")
+        asyncio.run(self.schwab_tools.monitor_orders([]))
+        # logger.info("Running AI agent...")
         
-        self.available_cash = self.schwab_tools.get_schwab_available_cash()
-        if self.available_cash < 200:
-            logger.info("Available cash is less than $200. Sleeping until next trading window...")
-            self.email_handler._send_email(
-                subject="Stock Bot: Low Cash Alert",
-                body="Your Stock Bot has less than $200 available cash. It will not execute trades until the next trading window. Please check that there are no hazards.",)
-        else:
-            logger.info(f"Available cash: {self.available_cash}")
+        # self.available_cash = self.schwab_tools.get_schwab_available_cash()
+        # if self.available_cash < 200:
+        #     logger.info("Available cash is less than $200. Sleeping until next trading window...")
+        #     self.email_handler._send_email(
+        #         subject="Stock Bot: Low Cash Alert",
+        #         body="Your Stock Bot has less than $200 available cash. It will not execute trades until the next trading window. Please check that there are no hazards.",)
+        # else:
+        #     logger.info(f"Available cash: {self.available_cash}")
         
-        stocks_to_trade = asyncio.run(self.ai_tools.get_ai_stock_recommendations())
+        # stocks_to_trade = asyncio.run(self.ai_tools.get_ai_stock_recommendations())
         
-        list_of_best_trades = [trade for trade in asyncio.run(self._process_all_tickers(stocks_to_trade)) if trade is not None]
-
-        reduced_available_cash = self.available_cash * 0.8
-        selected_trades = (self.macro_analsysis(list_of_best_trades, reduced_available_cash))['selectedTrades']
+        # list_of_best_trades = [trade for trade in asyncio.run(self._process_all_tickers(stocks_to_trade)) if trade is not None and trade['bestTrade'] is not None and trade['bestTrade']['premiumPerContract'] is not None and trade['score'] is not None]
+        # fraction_cash = round(self.available_cash*0.01,2)
+        # list_of_best_trades = [trade for trade in list_of_best_trades if trade['bestTrade']['premiumPerContract'] <= fraction_cash and trade['score'] >= 4.00 and trade['bestTrade']['premiumPerContract'] != 0.01]
+        # selected_trades = (self.macro_analsysis(list_of_best_trades, self.available_cash))['selectedTrades']
         
-        refined_order_placed = [trade for trade in asyncio.run(self._process_all_orders(selected_trades)) if trade is not None]
+        # refined_order_placed = [trade for trade in asyncio.run(self._process_all_orders(selected_trades)) if trade is not None]
         
-        exit_order_status = [trade for trade in asyncio.run(self._process_all_exits(refined_order_placed)) if trade is not None]
+        # exit_order_status = [trade for trade in asyncio.run(self._process_all_exits(refined_order_placed)) if trade is not None]
             
-        self.email_handler.send_trade_notification(selected_trades)
+        # self.email_handler.send_trade_notification(selected_trades)
         
-        logger.info("AI Agent run completed. Sleeping until next trading window...")
+        # logger.info("AI Agent run completed. Sleeping until next trading window...")
     
     def macro_analsysis(self, list_of_best_trades, available_cash):
         try:

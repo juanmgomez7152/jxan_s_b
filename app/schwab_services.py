@@ -34,7 +34,7 @@ class SchwabTools:
         return available_cash
 
     def get_core_quote(self,ticker):
-        response = schwab_client.quotes(ticker)#can send a list of tickers to get multiple quotes
+        response = schwab_client.quotes(ticker)
         data = response.json()
         quote = (self._parse_quote(data, ticker))
         return quote
@@ -43,7 +43,6 @@ class SchwabTools:
         options_chain_list = []
         for ticker, strike_price in tickers_strike_dict.items():
             
-            #TODO: May have to add argument for expiration month, strike count
             current_date =  (datetime.now() + timedelta(days=3)).strftime("%Y-%m-%d")
             current_date_plus_14 = (datetime.now() + timedelta(days=14)).strftime("%Y-%m-%d")
             response = schwab_client.option_chains(symbol=ticker,contractType="ALL",strikeCount=9,
@@ -51,12 +50,9 @@ class SchwabTools:
             contract_list = []
             data = response.json()
             
-            #Extract calls
             call_exp_map = data.get("callExpDateMap", {})
-            # contract_list = _extract_contract_info(call_exp_map, contract_list)
-            # Extract puts
             put_exp_map = data.get("putExpDateMap", {})
-            # contract_list = _extract_contract_info(put_exp_map, contract_list)
+
             combined_exp_map = {**call_exp_map, **put_exp_map}
             contract_list = self._extract_contract_info(combined_exp_map, contract_list)
             
@@ -108,18 +104,21 @@ class SchwabTools:
                     }
                 ]
             }
+            #******************
             # Place order using Schwab API
-            response = schwab_client.order_place(self.account_hash,order)
-            if response.status_code != 201:
-                raise Exception(f"Error placing order: {response.text}")
-            else:
-                return {
-                    "premium_per_contract": premium_per_contract,
-                    "contract_symbol": contract_symbol,
-                    "quantity": contracts_to_buy,
-                    "stop_loss": stop_loss,
-                    "stop_price": stop_price,
-                }
+            # response = schwab_client.order_place(self.account_hash,order)
+            # if response.status_code != 201:
+            #     raise Exception(f"Error placing order: {response.text}")
+            #******************
+            return {
+                "premium_per_contract": premium_per_contract,
+                "ticker": trade['symbol'],
+                "contract_symbol": contract_symbol,
+                "exitPremium": exit_premium,
+                "quantity": contracts_to_buy,
+                "stop_loss": stop_loss,
+                "stop_price": stop_price,
+            }
 
         except Exception as e:
             logger.error(f"Error in place_order: {e}")
@@ -181,11 +180,14 @@ class SchwabTools:
             return None    
     
     async def monitor_orders(self,payload):
+        payload = {'premium_per_contract': 0.61, 'ticker': 'GOOGL', 'contract_symbol': 'GOOGL 250523P00155000', 'exitPremium': 0.79, 'quantity': 2, 'stop_loss': 0.3, 'stop_price': 0.33}
+        current_datetime = datetime.now()
         current_date = datetime.now().date()
         contract_symbol = payload['contract_symbol']
+        ticker = payload['ticker']
         try:
             while True:
-                filtered_filled_buy_data, filtered_filled_sell_data, filtered_working_data = self._get_status_lists(current_date)
+                filtered_filled_buy_data, filtered_filled_sell_data, filtered_working_data = self._get_status_lists(current_datetime)
                 
                 filled_b_order_found = any(payload['contract_symbol'] == order['orderLegCollection'][0]['instrument']['symbol'] for order in filtered_filled_buy_data)
                 if filled_b_order_found:#if the order is filled, place the exit order
@@ -196,6 +198,7 @@ class SchwabTools:
                 working_order_found = any(contract_symbol == order['orderLegCollection'][0]['instrument']['symbol'] for order in filtered_working_data)
                 if not working_order_found: #if the order is filled, theres no exit order filled, and the order to close has not been placed
                    self._place_exit_oco_order(payload)
+                   logger.info(f"Exit OCO order placed for {ticker}")
                    break
             return {"Success": True,
                     "Contract_Symbol": contract_symbol}
@@ -205,15 +208,25 @@ class SchwabTools:
                     "Contract_Symbol": contract_symbol}
             
     def _get_status_lists(self, date):
-        response = schwab_client.account_orders(self.account_hash, date,date, status="FILLED")
-        filled_data = response.json()
-        filtered_filled_b_data = [order for order in filled_data if order['orderLegCollection'][0]['instruction'] == "BUY_TO_OPEN"]
-        filtered_filled_s_data = [order for order in filled_data if order['orderLegCollection'][0]['instruction'] == "SELL_TO_CLOSE"]
-        response = schwab_client.account_orders(self.account_hash, date,date, status="WORKING")
-        working_data = response.json()
-        filtered_working_data = [order for order in working_data if order['orderLegCollection'][0]['instruction'] == "SELL_TO_CLOSE"]
-        
-        return filtered_filled_b_data, filtered_filled_s_data, filtered_working_data
+        try:
+            response = schwab_client.account_orders(self.account_hash, date,date)#get all orders for the day
+            all_orders = response.json()
+            filled_buy_orders = [order for order in all_orders if order['orderLegCollection'][0]['instruction'] == "BUY_TO_OPEN" and order['orderLegCollection'][0]['orderStatus'] == "FILLED"]
+            filled_sell_orders = [order for order in all_orders if order['orderLegCollection'][0]['instruction'] == "SELL_TO_CLOSE" and order['orderLegCollection'][0]['orderStatus'] == "FILLED"]
+            working_orders = [order for order in all_orders if order['orderLegCollection'][0]['instruction'] == "SELL_TO_CLOSE" and order['orderLegCollection'][0]['orderStatus'] == "WORKING"]
+            
+            response = schwab_client.account_orders(self.account_hash, date,date, status="FILLED")
+            filled_data = response.json()
+            filtered_filled_b_data = [order for order in filled_data if order['orderLegCollection'][0]['instruction'] == "BUY_TO_OPEN"]
+            filtered_filled_s_data = [order for order in filled_data if order['orderLegCollection'][0]['instruction'] == "SELL_TO_CLOSE"]
+            response = schwab_client.account_orders(self.account_hash, date,date, status="WORKING")
+            working_data = response.json()
+            filtered_working_data = [order for order in working_data if order['orderLegCollection'][0]['instruction'] == "SELL_TO_CLOSE"]
+            
+            return filtered_filled_b_data, filtered_filled_s_data, filtered_working_data
+        except Exception as e:
+            logger.error(f"Error in _get_status_lists: {e}")
+            return [], [], []
     
     def optimal_trade_selection(self,payload):
         # Convert budget to cents
@@ -328,7 +341,7 @@ class SchwabTools:
                     'premiumPerContract': trade['premiumPerContract'],
                     'exitPremium': round((trade['premiumPerContract'])*1.3, 2),
                     'stop_loss': round((trade['premiumPerContract'])*0.5, 2),
-                    'stop_price': round((trade['premiumPerContract'])*0.5, 2) + 0.03,
+                    'stop_price': round((trade['premiumPerContract'])*0.5 + 0.03, 2),
                     'score': trades[i]['score'],
                     'contractsToBuy': count
                 })

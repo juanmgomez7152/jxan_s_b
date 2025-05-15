@@ -7,7 +7,8 @@ import os
 import logging
 
 logger = logging.getLogger(__name__)
-MODEL_NAME = "gpt-4.1"
+MODEL_NAME = "gpt-4.1-2025-04-14"
+CHEAP_MODEL_NAME = "gpt-4.1-mini-2025-04-14"
 client = OpenAI()
 client.api_key = os.getenv("OPENAI_API_KEY")
 
@@ -21,31 +22,43 @@ with open("app/resources/prompts/stock_recommendations_user.txt", encoding="utf-
 class AiTools:
     async def get_ai_stock_recommendations(self):
         try:
-            response = client.responses.create(
-                model= MODEL_NAME,
+            response = client.responses.parse(
+                model=MODEL_NAME,
                 temperature=0,
                 top_p=1,
-                tools= [{ "type": "web_search_preview",
+                tools=[
+                    {
+                        "type": "web_search_preview",
                         "search_context_size": "medium",
-                        "user_location":{"type":"approximate","country":"US","city":"Austin","region":"Austin","timezone":"America/Chicago"},
-                        }],
-                input=[{
-                        "role":"system",
+                        "user_location": {
+                            "type": "approximate",
+                            "country": "US",
+                            "city": "Austin",
+                            "region": "Austin",
+                            "timezone": "America/Chicago"
+                        }
+                    }
+                ],
+                input = [
+                    {
+                        "role": "system",
                         "content": stock_recommendations_system_mesage
                     },
                     {
-                        "role":"user",
+                        "role": "user",
                         "content": stock_recommendations_user_mesage
                     }
-                    
-                    ]
+                ],
             )
-            data = response.output_text
-            json_data = json.loads(data)
+            if "json" in response.output_text:
+                json_data = self._strip_json(response.output_text)
+            else:
+                data = response.output_text
+                json_data = json.loads(data)
             candidates = json_data.get("candidates", [])
             return candidates
         except Exception as e:
-            logger.error(f"Error in get_ai_stock_events: {e}")
+            logger.error(f"Error in get_ai_stock_recommendation: {e}")
             return None
 
     async def micro_stock_options_analysis(self,payload):
@@ -86,12 +99,10 @@ class AiTools:
                         """
                     }
                 ],
-            )    
-            #                     The *score is a number between 0 and 10, score the contract on how good the trade is likely to return a positive roi.
-            #                     Score (0–10) is computed as: 40% Probability of Profit (chance the option finishes ITM), 20% Expected ROI ((E[payoff]–premium)/premium), 10% Risk/Reward ratio ((POP/(1–POP))×ROI), 10% Theta‐decay drag (|Θ|×days-held/premium), 10% Liquidity score (inverse bid-ask spread × √(OI/OI_ref)), and 10% IV cheapness ((mean_IV–IV_today)/std_IV mapped to [0,1]).
+            ) 
             recommendation = responses.choices[0].message.content
             json_rec = json.loads(recommendation)
-            #add the score from the payload to the json_rec
+
             return json_rec
             
         except Exception as e:
@@ -100,51 +111,56 @@ class AiTools:
 
     async def get_ai_stock_events(self,ticker):
         try:
-            response = client.responses.create(
-                model= MODEL_NAME,
+            response = client.responses.parse(
+                model=MODEL_NAME,
                 temperature=0,
                 top_p=1,
-                tools= [{ "type": "web_search_preview",
+                tools=[
+                    {
+                        "type": "web_search_preview",
                         "search_context_size": "medium",
-                        "user_location":{"type":"approximate","country":"US","city":"Austin","region":"Austin","timezone":"America/Chicago"},
-                        }],
+                        "user_location": {
+                            "type": "approximate",
+                            "country": "US",
+                            "city": "Austin",
+                            "region": "Austin",
+                            "timezone": "America/Chicago"
+                        }
+                    }
+                ],
                 input=[{
                     "role":"system",
-                    "content": f"""You are Expert Options Trader, a financial assistant that provides stock market information on fundementals and corporate events for {ticker} in the following JSON Format:
-                    Output Format (EXAMPLE):
+                    "content": f"""
+                    You are Expert Options Trader, a financial assistant that provides stock market information on fundementals and corporate events for {ticker}. 
+                    
+                    YOU MUST RESPOND ONLY WITH VALID JSON. DO NOT INCLUDE ANY EXPLANATORY TEXT OUTSIDE THE JSON.
+                    
+                    Your response must strictly follow this JSON format:
+                    {{
                         "fundamentals": {{
                             "earnings": {{
-                                "nextEarningsDate": "2025-05-08",
-                                "lastEarningsDate": "2025-02-01",
-                                "estimatedEarnings": 1.45,
-                                "actualEarnings": 1.60,
-                                "earningsSurprisePercent": 10.3
+                                "nextEarningsDate": "YYYY-MM-DD",
+                                "lastEarningsDate": "YYYY-MM-DD",
+                                "estimatedEarnings": 0.00,
+                                "actualEarnings": 0.00,
+                                "earningsSurprisePercent": 0.0
                             }},
                             "dividends": {{
-                                "nextDividendDate": "2025-05-15",
-                                "dividendAmount": 0.24,
-                                "dividendYield": 0.006
+                                "nextDividendDate": "YYYY-MM-DD",
+                                "dividendAmount": 0.00,
+                                "dividendYield": 0.000
                             }},
-                            "beta": 1.15,
-                            "marketCap": 2800000000000,
+                            "beta": 0.00,
+                            "marketCap": 0,
                             "events": [
                                 {{
-                                    "type": "product_launch",
-                                    "description": "Expected iPhone 17 launch",
-                                    "date": "2025-05-12"
-                                }},
-                                {{
-                                    "type": "analyst_day",
-                                    "description": "Investor presentation and updated guidance",
-                                    "date": "2025-05-20"
-                                }},
-                                {{
-                                    "type": "regulatory_decision",
-                                    "description": "DOJ antitrust review conclusion",
-                                    "date": "2025-05-06"
+                                    "type": "event_type",
+                                    "description": "event description",
+                                    "date": "YYYY-MM-DD"
                                 }}
                             ]
                         }}
+                    }}
                     """
                     },
                     {"role":"user",
@@ -154,15 +170,27 @@ class AiTools:
                     ]
             )
             
+            if "json" in response.output_text:
+                json_data = self._strip_json(response.output_text)
+            else:
+                data = response.output_text
+                json_data = json.loads(data)
+            fundamentals = json_data.get("fundamentals", {})
+            return fundamentals
+        except Exception as e:
+            logger.error(f"Error in get_ai_stock_events: {e}")
+            return None
+        
+    def _strip_json(self, json_str):
+        try:
             pattern = r'```json\s*(.*?)\s*```'
-            match = re.search(pattern, response.output_text, re.DOTALL)
+            match = re.search(pattern, json_str, re.DOTALL)
             if not match:
                 return None
             
             json_str = match.group(1)
             parsed_data = json.loads(json_str)
-            fundamentals = parsed_data.get("fundamentals", {})
-            return fundamentals
+            return parsed_data
         except Exception as e:
-            logger.error(f"Error in get_ai_stock_events: {e}")
+            logger.error(f"Error in _strip_json: {e}")
             return None

@@ -1,2 +1,2 @@
-Fetch today’s top 10 most‐active U.S. equities from a reliable finance news site (e.g. CNBC, Yahoo Finance).
+Fetch today’s top 15 most‐active U.S. equities from a reliable finance news site (e.g. CNBC, Yahoo Finance).
 Output the results in the JSON format specified above ONLY.
