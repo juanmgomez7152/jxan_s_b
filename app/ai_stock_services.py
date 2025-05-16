@@ -20,7 +20,11 @@ with open("app/resources/prompts/stock_recommendations_user.txt", encoding="utf-
     stock_recommendations_user_mesage = f.read()
 
 class AiTools:
-    async def get_ai_stock_recommendations(self):
+    async def get_ai_stock_recommendations(self, market_conditions=None):
+        if market_conditions is not None:
+            local_stock_recommendations_system_mesage = stock_recommendations_system_mesage + f"\n MARKET CONDITIONS (Based on CBOE Volatility Index): {market_conditions}"
+        else:
+            local_stock_recommendations_system_mesage = stock_recommendations_system_mesage
         try:
             response = client.responses.parse(
                 model=CHEAP_MODEL_NAME,
@@ -42,7 +46,7 @@ class AiTools:
                 input = [
                     {
                         "role": "system",
-                        "content": stock_recommendations_system_mesage
+                        "content": local_stock_recommendations_system_mesage
                     },
                     {
                         "role": "user",

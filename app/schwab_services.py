@@ -190,7 +190,6 @@ class SchwabTools:
                 filtered_filled_buy_data, filtered_filled_sell_data, filtered_working_data = self._get_status_lists(current_datetime)
                 
                 filled_b_order_found = any(payload['contract_symbol'] == order['orderLegCollection'][0]['instrument']['symbol'] for order in filtered_filled_buy_data)
-                filled_b_order_found = True
                 if not filled_b_order_found:#if the buy_to_open order is not filled check again immediately
                     continue
                 
@@ -296,64 +295,119 @@ class SchwabTools:
             'totalPremiumUsed': total_used
         }
 
-    def diversified_trade_selection(self, payload, max_symbol_pct=0.5):
-        # Budget
-        budget = payload['availableCash']
-        
-        trades = payload['bestTradesList']
-        
-        # Define problem
-        prob = pulp.LpProblem("Diversified_Trade_Selection", pulp.LpMaximize)
-        
-        # Decision variables: number of contracts per trade (integer)
-        x = {
-            i: pulp.LpVariable(f"x_{i}", lowBound=0, cat="Integer")
-            for i in range(len(trades))
-        }
-        
-        # Objective: maximize total score
-        prob += pulp.lpSum([trades[i]['score'] * x[i] for i in x])
-        
-        # Budget constraint
-        prob += pulp.lpSum([trades[i]['bestTrade']['premiumPerContract'] * 100 * x[i] for i in x]) <= budget
-        
-        # Diversification constraint: no single symbol consumes more than max_symbol_pct of budget
-        for symbol in set(t['symbol'] for t in trades):
+    def diversified_trade_selection(self, payload, market_condition="NORMAL"):
+        try:
+            best_trades = payload["bestTradesList"]
+            available_cash = payload['availableCash']
+            
+            # Create PuLP problem
+            prob = pulp.LpProblem("Options_Selection", pulp.LpMaximize)
+            
+            # Integer variables for contract quantities (not just binary selection)
+            # Each variable represents how many contracts to buy for each trade
+            qty_vars = {f"qty_{i}": pulp.LpVariable(f"qty_{i}", lowBound=0, upBound=10, cat='Integer') 
+                        for i in range(len(best_trades))}
+            
+            # Objective: Maximize total score × quantity (weighted by premium to favor cheaper contracts)
             prob += pulp.lpSum([
-                trades[i]['bestTrade']['premiumPerContract'] * 100 * x[i]
-                for i in x if trades[i]['symbol'] == symbol
-            ]) <= max_symbol_pct * budget
+                best_trades[i]['score'] * qty_vars[f"qty_{i}"] * 
+                (1 / max(0.12, best_trades[i]['bestTrade']['premiumPerContract']))  # Weight by inverse of premium
+                for i in range(len(best_trades))
+            ])
+            
+            # Constraint: Total cost must be within available cash (90%)
+            prob += pulp.lpSum([
+                best_trades[i]['bestTrade']['premiumPerContract'] * qty_vars[f"qty_{i}"]
+                for i in range(len(best_trades))
+            ]) <= available_cash * 0.9
+            
+            # Constraint: Diversification - no more than 50% per symbol
+            symbols = set([trade['symbol'] for trade in best_trades])
+            for symbol in symbols:
+                symbol_indices = [i for i in range(len(best_trades)) 
+                                if best_trades[i]['symbol'] == symbol]
+                
+                prob += pulp.lpSum([
+                    best_trades[i]['bestTrade']['premiumPerContract'] * qty_vars[f"qty_{i}"]
+                    for i in symbol_indices
+                ]) <= available_cash * 0.5
+            
+            # Maximum number of distinct trades to select (avoid too many small positions)
+            max_distinct_trades = min(5, len(best_trades))
+            binary_selected = {f"selected_{i}": pulp.LpVariable(f"selected_{i}", cat='Binary') 
+                            for i in range(len(best_trades))}
+            
+            # Link qty variables to binary selection variables
+            for i in range(len(best_trades)):
+                # If quantity > 0, then binary_selected = 1
+                prob += qty_vars[f"qty_{i}"] <= 10 * binary_selected[f"selected_{i}"]
+                # If binary_selected = 0, then quantity = 0
+                prob += qty_vars[f"qty_{i}"] >= binary_selected[f"selected_{i}"]
+            
+            # Limit on number of distinct trades
+            prob += pulp.lpSum([binary_selected[f"selected_{i}"] for i in range(len(best_trades))]) <= max_distinct_trades
+            
+            # Solve
+            prob.solve(pulp.PULP_CBC_CMD(msg=0))
+            
+            # Get selected trades and their quantities
+            selected = []
+            total_premium_used = 0
+            
+            for i in range(len(best_trades)):
+                contracts_to_buy = int(qty_vars[f"qty_{i}"].value())
+                if contracts_to_buy > 0:
+                    trade = best_trades[i]['bestTrade']
+                    symbol = best_trades[i]['symbol']
+                    premium = trade['premiumPerContract']
+                    
+                    # Get implied volatility value
+                    iv = trade.get('impliedVolatility', 60)  # Default to 60% if not present
+                    
+                    # Adjust exit parameters based on market condition and IV
+                    base_profit_factor = 1.0 + (iv/100)  # Base profit target
+                    base_stop_factor = max(0.4, 0.65 - (iv/200))  # Base stop loss
+                    
+                    # Further adjust based on market condition
+                    if market_condition == "HIGHLY_VOLATILE":
+                        profit_factor = base_profit_factor * 1.2  # Higher profit targets in volatile markets
+                        stop_factor = base_stop_factor * 0.9     # Tighter stops in volatile markets
+                    elif market_condition == "VOLATILE":
+                        profit_factor = base_profit_factor * 1.1
+                        stop_factor = base_stop_factor * 0.95
+                    elif market_condition == "LOW_VOLATILITY":
+                        profit_factor = base_profit_factor * 0.9  # Lower targets in calm markets
+                        stop_factor = base_stop_factor * 1.1      # Wider stops in calm markets
+                    else:  # NORMAL
+                        profit_factor = base_profit_factor
+                        stop_factor = base_stop_factor
+                    
+                    # Calculate final exit parameters
+                    exit_premium = round(premium * profit_factor, 2)
+                    stop_loss = round(premium * stop_factor, 2)
+                    stop_price = round(premium * (stop_factor + 0.05), 2)
+                    
+                    # Calculate total cost for this position
+                    position_cost = round(premium * contracts_to_buy, 2)
+                    total_premium_used += position_cost
+                    
+                    selected.append({
+                        **trade,
+                        'symbol': symbol,
+                        'contractsToBuy': contracts_to_buy,
+                        'exitPremium': exit_premium,
+                        'stop_loss': stop_loss,
+                        'stop_price': stop_price,
+                        'total_cost': position_cost,
+                        'total_profit': round((exit_premium - premium) * contracts_to_buy, 2),
+                        'total_loss': round((premium - stop_loss) * contracts_to_buy, 2),
+                    })
+            
+            return {"selectedTrades": selected, "totalPremiumUsed": total_premium_used}
         
-        # Solve
-        prob.solve(pulp.PULP_CBC_CMD(msg=0))
-        
-        # Build result
-        selected = []
-        total_used = 0.0
-        for i in x:
-            count = int(pulp.value(x[i]))
-            if count > 0:
-                trade = trades[i]['bestTrade']
-                cost = trade['premiumPerContract'] * 100 * count
-                total_used += cost
-                selected.append({
-                    'symbol': trades[i]['symbol'],
-                    'contractSymbol': trade['contractSymbol'],
-                    'type': trade['type'],
-                    'strikePrice': trade['strikePrice'],
-                    'expirationDate': trade['expirationDate'],
-                    'premiumPerContract': trade['premiumPerContract'],
-                    'exitPremium': round((trade['premiumPerContract'])*1.3, 2),
-                    'stop_loss': round((trade['premiumPerContract'])*0.5, 2),
-                    'stop_price': round((trade['premiumPerContract'])*0.5 + 0.02, 2),
-                    'score': trades[i]['score'],
-                    'contractsToBuy': count
-                })
-        
-        return {
-            'selectedTrades': selected,
-            'totalPremiumUsed': total_used
-        }
+        except Exception as e:
+            logger.error(f"Error in diversified_trade_selection: {e}")
+            return {"selectedTrades": []}
         
     def _extract_contract_info(self,exp_map, contract_list):
             # Collect contracts by expiration date
@@ -453,14 +507,14 @@ class SchwabTools:
                 
                 score_components = {}
                 
-                # 1. Calculate Probability of Profit (40%)
+                # 1. Calculate Probability of Profit (35%)
                 if option_type == "PUT":
                     pop = 1 - abs(delta) if delta else 0.5  # POP for puts
                 else:  # CALL
                     pop = delta if delta else 0.5  # POP for calls
                 
                 pop_score = pop * 10  # Scale to 0-10
-                score_components["pop_score"] = pop_score * 0.4
+                score_components["pop_score"] = pop_score * 0.35
                 
                 # 2. Expected ROI (20%)
                 if premium > 0:
@@ -487,7 +541,7 @@ class SchwabTools:
                     
                 score_components["risk_reward_score"] = risk_reward_score * 0.1
                 
-                # 4. Theta decay drag (10%) - inverted so lower is better
+                # 4. Theta decay drag (7%) - inverted so lower is better
                 if premium > 0:
                     theta_drag = (theta * days_to_expiration) / premium
                     # Invert so lower values are better (less decay per premium dollar)
@@ -495,9 +549,9 @@ class SchwabTools:
                 else:
                     theta_drag_score = 0
                 
-                score_components["theta_drag_score"] = min(10, max(0, theta_drag_score)) * 0.1
+                score_components["theta_drag_score"] = min(10, max(0, theta_drag_score)) * 0.07
                 
-                # 5. Liquidity score (10%)
+                # 5. Liquidity score (8%)
                 if ask > bid > 0:
                     # Calculate inverse bid-ask spread
                     spread_pct = (ask - bid) / bid
@@ -510,9 +564,9 @@ class SchwabTools:
                 else:
                     liquidity_score = 1  # Poor liquidity if invalid bid/ask
                     
-                score_components["liquidity_score"] = liquidity_score * 0.1
+                score_components["liquidity_score"] = liquidity_score * 0.08
                 
-                # 6. IV cheapness (10%)
+                # 6. IV cheapness (8%)
                 if iv_std > 0:
                     iv_z_score = (iv_mean - iv_current) / iv_std
                     # Convert z-score to a 0-10 scale where lower IV is better
@@ -520,13 +574,35 @@ class SchwabTools:
                 else:
                     iv_cheapness_score = 5  # Neutral score if std is 0
                     
-                score_components["iv_cheapness_score"] = iv_cheapness_score * 0.1
+                score_components["iv_cheapness_score"] = iv_cheapness_score * 0.08
+                
+                # 7. NEW: Days to expiration score (12% - new component)
+                # Maximum score at 8 days, gradually decreasing in both directions
+                ideal_dte = 8  # Target 8 days to expiration
+                dte_diff = abs(days_to_expiration - ideal_dte)
+                
+                if days_to_expiration < 3:  # Too short - rapid time decay risk
+                    dte_score = 0
+                elif days_to_expiration > 21:  # Too long - capital inefficient
+                    dte_score = max(0, 3 - (days_to_expiration - 21) / 10)  # Small score for 21-30 DTE, 0 after
+                else:
+                    # Triangle function peaked at ideal_dte
+                    dte_score = max(0, 10 - dte_diff * 1.5)  # Linear decrease from peak
+                
+                # If implied vol is high (>60%), prefer shorter DTE
+                if implied_vol > 0.6:
+                    shorter_dte_bonus = max(0, (0.8 - days_to_expiration/30) * 5)  # Bonus for shorter DTE in high IV
+                    dte_score = max(dte_score, shorter_dte_bonus)  # Take the better score
+                    
+                score_components["dte_score"] = dte_score * 0.12  # New weight                
                 
                 # Calculate final weighted score
                 final_score = sum(score_components.values())
-                final_scory = round(final_score, 2)
+                final_score_rounded = round(final_score, 2)
                 # Store score and components in the contract object
-                contract["score"] = final_scory
+                contract["score"] = final_score_rounded
+                logger.debug(f"Contract {contract['contract_symbol']} DTE: {days_to_expiration}, Score: {final_score_rounded}")
+ 
                 
             except Exception as e:
                 logger.error(f"Error scoring contract {contract.get('contract_symbol', 'unknown')}: {e}")
@@ -536,6 +612,8 @@ class SchwabTools:
         return contract_list
 
     def _parse_quote(self, json_response, ticker):
+        if ticker == "$VIX":
+            return json_response[ticker]['quote']['lastPrice']
         try:
             last_price = json_response[ticker]['quote']['lastPrice']
             bid = json_response[ticker]['quote']['bidPrice']
