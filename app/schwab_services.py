@@ -190,6 +190,7 @@ class SchwabTools:
                 filtered_filled_buy_data, filtered_filled_sell_data, filtered_working_data = self._get_status_lists(current_datetime)
                 
                 filled_b_order_found = any(payload['contract_symbol'] == order['orderLegCollection'][0]['instrument']['symbol'] for order in filtered_filled_buy_data)
+                
                 if not filled_b_order_found:#if the buy_to_open order is not filled check again immediately
                     continue
                 
@@ -210,9 +211,9 @@ class SchwabTools:
                     "quantity": payload['quantity'],
                     "exit_premium": payload['exitPremium'],
                     "stop_loss": payload['stop_loss'],
-                    "total_cost": round(payload['premium'] * payload['quantity'],2)*100,
-                    "total_profit": round(payload['exitPremium'] * payload['quantity'] - payload['premium'] * payload['quantity'],2)*100,
-                    "total_loss": round(payload['premium'] * payload['quantity'] - payload['stop_loss'] * payload['quantity'],2)*100,}
+                    "total_cost": round(payload['premium'] * payload['quantity']*100,2),
+                    "total_profit": round((payload['exitPremium'] - payload['premium']) * payload['quantity']*100,2),
+                    "total_loss": round((payload['premium'] - payload['stop_loss']) * payload['quantity']*100,2)}
         except Exception as e:
             logger.error(f"Error in monitor_orders: {e}")
             return {"success": False,

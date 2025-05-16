@@ -21,12 +21,23 @@ class EmailHandler:
         """Send notification email about executed trades"""
         subject = f"Stock Bot: Trade Notification"
         
+        total_cohort_cost = sum(trade.get('total_cost', 0) for trade in trades)
+        total_cohort_profit = sum(trade.get('total_profit', 0) for trade in trades)
+        total_cohort_loss = sum(trade.get('total_loss', 0) for trade in trades)
+        prc_profit = round(100*(total_cohort_profit)/total_cohort_cost,0)
+        prc_loss = round(100*(total_cohort_loss)/total_cohort_cost,0)
         # Create message body with trade details
         title = f"""
         <h2>Trade Notification</h2>
         <p>Your Stock Bot has executed the following trade:</p>
         """
-        message = ""
+        message = f"""
+                    <h1><strong>Est. Cohort Cost:</strong> ${total_cohort_cost}</h1>
+                    <h1><strong>Est. Possible Cohort Profit:</strong><span style="color: green;"> ${total_cohort_profit} (+{prc_profit}%)</span></h1>
+                    <h1><strong>Est. Acceptable Total Loss:</strong><span style="color: red;"> ${total_cohort_loss} (-{prc_loss}%)</span></h1>
+                    <hr style="border-top: 3px solid #bbb;">
+        """
+        
         for trade_info in trades:
             contract_symbol = trade_info.get('contract_symbol')
             ticker = trade_info.get('ticker')

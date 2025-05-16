@@ -65,7 +65,7 @@ class AiTools:
             logger.error(f"Error in get_ai_stock_recommendation: {e}")
             return None
 
-    async def micro_stock_options_analysis(self,payload):
+    async def micro_stock_options_analysis(self,payload,retry=0):
         try:
             responses = client.chat.completions.create(
                 model=MODEL_NAME,
@@ -106,13 +106,20 @@ class AiTools:
             ) 
             recommendation = responses.choices[0].message.content
             json_rec = json.loads(recommendation)
-
+            check_keys = ["symbol", "bestTrade", "score"]
+            if not all(key in json_rec for key in check_keys):
+                raise ValueError(f"Missing keys in response: {json_rec}")
             return json_rec
             
         except Exception as e:
             logger.error(f"Error in micro_stock_options_analysis: {e}")
-            return None
-
+            retry+=1
+            if retry < 3:
+                logger.info(f"Retrying micro_stock_options_analysis for {payload['symbol']}, attempt {retry}")
+                return await self.micro_stock_options_analysis(payload,retry)
+            else:
+                logger.error(f"Max retries reached for micro_stock_options_analysis: {e}")
+                return None
     async def get_ai_stock_events(self,ticker):
         try:
             response = client.responses.parse(
