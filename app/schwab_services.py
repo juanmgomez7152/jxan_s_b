@@ -106,9 +106,9 @@ class SchwabTools:
             }
             #******************
             # Place order using Schwab API
-            response = schwab_client.order_place(self.account_hash,order)
-            if response.status_code != 201:
-                raise Exception(f"Error placing order: {response.text}")
+            # response = schwab_client.order_place(self.account_hash,order)
+            # if response.status_code != 201:
+            #     raise Exception(f"Error placing order: {response.text}")
             #******************
             return {
                 "premium_per_contract": premium_per_contract,
@@ -173,9 +173,9 @@ class SchwabTools:
                     } 
                     ] 
                     }
-            oco_response = schwab_client.order_place(self.account_hash,oco_order)
-            if oco_response.status_code != 201:
-                raise Exception(f"Error placing stop loss order: {oco_response.text}")
+            # oco_response = schwab_client.order_place(self.account_hash,oco_order)
+            # if oco_response.status_code != 201:
+            #     raise Exception(f"Error placing stop loss order: {oco_response.text}")
                 
         except Exception as e:
             logger.error(f"Error in placing exit orders: {e}")
