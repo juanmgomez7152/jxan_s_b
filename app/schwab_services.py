@@ -9,13 +9,16 @@ import statistics
 import json
 import pulp
 from calendar import month_abbr
+import finnhub
 
 logger = logging.getLogger(__name__)
 load_dotenv()
 APP_KEY = os.getenv("APP_KEY")
 APP_SECRET = os.getenv("APP_SECRET")
 APP_CALLBACK_URL = os.getenv("APP_CALLBACK_URL")
+FINNHUB_API_KEY = os.getenv("FINNHUB_API_KEY")
 schwab_client = SchwabClient(APP_KEY, APP_SECRET, APP_CALLBACK_URL)
+finnhub_client = finnhub.Client(api_key=FINNHUB_API_KEY)
 global available_cash
 global account_id
 
@@ -29,10 +32,15 @@ class SchwabTools:
         self.account_hash = ((schwab_client.account_linked()).json())[0]['hashValue']
         
         account_id = account['securitiesAccount']['accountNumber']
-        available_cash = account['securitiesAccount']['currentBalances']['availableFunds']
+        available_cash = account['securitiesAccount']['currentBalances']['cashBalance']
         
         return available_cash
-
+    
+    def get_ticker_info(self, ticker):
+        news = finnhub_client.company_news(ticker, _from=(datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d'), to=datetime.now().strftime('%Y-%m-%d'))
+        basic_financials = finnhub_client.company_basic_financials(ticker, 'all')
+        return {'news':news, 'basic_financials': basic_financials}
+        
     def get_core_quote(self,ticker):
         response = schwab_client.quotes(ticker)
         data = response.json()
@@ -52,15 +60,15 @@ class SchwabTools:
             
             call_exp_map = data.get("callExpDateMap", {})
             put_exp_map = data.get("putExpDateMap", {})
-
-            combined_exp_map = {**call_exp_map, **put_exp_map}
-            contract_list = self._extract_contract_info(combined_exp_map, contract_list)
             
+            contract_list = self._extract_contract_info(call_exp_map, contract_list)
+            contract_list = self._extract_contract_info(put_exp_map, contract_list)
+            highest_scored_contract = max(contract_list, key=lambda x: x.get("score", 0), default=None)
             options_chain_list.append({'ticker':ticker, 'options':contract_list})
             contract_list = []  # Reset for the next ticker
-
+            
         
-        return options_chain_list
+        return options_chain_list,highest_scored_contract
 
     def get_price_history(self, ticker, periodType="month"):
         response = schwab_client.price_history(ticker, periodType=periodType,period=1, frequencyType="daily")
@@ -77,7 +85,7 @@ class SchwabTools:
     async def place_order(self,trade):
         try:
             # Extract trade details
-            contract_symbol = trade['contractSymbol']
+            contract_symbol = trade['contract_symbol']
             premium_per_contract = trade['premiumPerContract']
             stop_loss = trade['stop_loss']
             stop_price = trade['stop_price']
@@ -190,7 +198,7 @@ class SchwabTools:
                 filtered_filled_buy_data, filtered_filled_sell_data, filtered_working_data = self._get_status_lists(current_datetime)
                 
                 filled_b_order_found = any(payload['contract_symbol'] == order['orderLegCollection'][0]['instrument']['symbol'] for order in filtered_filled_buy_data)
-                
+                filled_b_order_found = True # for testing purposes, remove this line in production
                 if not filled_b_order_found:#if the buy_to_open order is not filled check again immediately
                     continue
                 
@@ -312,13 +320,13 @@ class SchwabTools:
             # Objective: Maximize total score × quantity (weighted by premium to favor cheaper contracts)
             prob += pulp.lpSum([
                 best_trades[i]['score'] * qty_vars[f"qty_{i}"] * 
-                (1 / max(0.12, best_trades[i]['bestTrade']['premiumPerContract']))  # Weight by inverse of premium
+                (1 / max(0.12, best_trades[i]['premiumPerContract']))  # Weight by inverse of premium
                 for i in range(len(best_trades))
             ])
             
             # Constraint: Total cost must be within available cash (90%)
             prob += pulp.lpSum([
-                best_trades[i]['bestTrade']['premiumPerContract'] * qty_vars[f"qty_{i}"]
+                best_trades[i]['premiumPerContract'] * qty_vars[f"qty_{i}"]
                 for i in range(len(best_trades))
             ]) <= available_cash * 0.9
             
@@ -329,7 +337,7 @@ class SchwabTools:
                                 if best_trades[i]['symbol'] == symbol]
                 
                 prob += pulp.lpSum([
-                    best_trades[i]['bestTrade']['premiumPerContract'] * qty_vars[f"qty_{i}"]
+                    best_trades[i]['premiumPerContract'] * qty_vars[f"qty_{i}"]
                     for i in symbol_indices
                 ]) <= available_cash * 0.5
             
@@ -358,7 +366,7 @@ class SchwabTools:
             for i in range(len(best_trades)):
                 contracts_to_buy = int(qty_vars[f"qty_{i}"].value())
                 if contracts_to_buy > 0:
-                    trade = best_trades[i]['bestTrade']
+                    trade = best_trades[i]
                     symbol = best_trades[i]['symbol']
                     premium = trade['premiumPerContract']
                     

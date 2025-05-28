@@ -49,6 +49,7 @@ class EmailHandler:
             total_cost = trade_info.get('total_cost')
             total_profit = trade_info.get('total_profit')
             total_loss = trade_info.get('total_loss')
+            ai_sentiment = trade_info.get('ai_sentiment')
             trade = f"""
                 <ul>
                     <li><strong>Symbol:</strong> {ticker}</li>
@@ -58,6 +59,7 @@ class EmailHandler:
                     <li><strong>Exit Premium:</strong> ${exit_premium}</li>
                     <li><strong>Stop Loss:</strong> ${stop_loss}</li>
                     <li><strong>Quantity:</strong> {quantity}</li>
+                    <li><strong>Would AI made this trade? </strong> {ai_sentiment}</li>
                     <h2><strong>Possible Total Cost:</strong> ${total_cost}</h2>
                     <h2><strong>Possible Total Profit:</strong><span style="color: green;"> ${total_profit}</span></h2>
                     <h2><strong>Acceptable Total Loss:</strong><span style="color: red;"> ${total_loss}</span></h2>

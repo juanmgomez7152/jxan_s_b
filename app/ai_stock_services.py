@@ -20,6 +20,27 @@ with open("app/resources/prompts/stock_recommendations_user.txt", encoding="utf-
     stock_recommendations_user_mesage = f.read()
 
 class AiTools:
+    async def trade_insight(self, payload):
+        try:
+            response = client.chat.completions.create(
+                model=MODEL_NAME,
+                temperature=0,
+                top_p=1,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a stock-options analysis agent specializing in selecting optimal trades. you will be provided with an options trade along with fundamental and events data. Your task is to simply respond 'YES' or 'NO', whether you would have placed this trade and why you answer that way."
+                    },
+                    {
+                        "role": "user",
+                        "content": f"Would you make the following trade: {payload}"
+                    }
+                ],
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            logger.error(f"Error in trade_insight: {e}")
+            return None
     async def get_ai_stock_recommendations(self, market_conditions=None):
         if market_conditions is not None:
             local_stock_recommendations_system_mesage = stock_recommendations_system_mesage + f"\n MARKET CONDITIONS (Based on CBOE Volatility Index): {market_conditions}"

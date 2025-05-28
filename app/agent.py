@@ -1,6 +1,7 @@
 from app.ai_stock_services import AiTools
 from app.schwab_services import SchwabTools
 from app.trading_scheduling_tools import TradingSchedulingTools
+from app.web_scrapping_services import YahooFinanceScraper
 from app.email_handler import EmailHandler
 import asyncio
 import logging
@@ -13,6 +14,7 @@ class AIStockAgent:
         self.schwab_tools = SchwabTools()
         self.trading_scheduling_tools = TradingSchedulingTools()
         self.email_handler = EmailHandler()
+        self.yahoo_finance_scraper = YahooFinanceScraper()
         logger.info("AIStockAgent initialized...")
     
     async def run_ai_agent(self):
@@ -34,22 +36,27 @@ class AIStockAgent:
             logger.info(f"Available cash: {self.available_cash}")
             
         logger.info("Fetching stock recommendations...")
-        stock_recommendations = await (self.ai_tools.get_ai_stock_recommendations(market_conditions=market_conditions))
+        stock_recommendations = self.yahoo_finance_scraper.get_most_active_stocks()
+        
+        # stock_recommendations = await (self.ai_tools.get_ai_stock_recommendations(market_conditions=market_conditions))
         
         logger.info("Performing micro analysis on stock recommendations...")
-        best_trades = [trade for trade in await (self._process_all_tickers(stock_recommendations)) if trade is not None and trade['bestTrade'] is not None and trade['bestTrade']['premiumPerContract'] is not None and trade['score'] is not None]
+        best_trades = [trade for trade in await (self._process_all_tickers(stock_recommendations)) if trade is not None]
         
         logger.info("Selecting the best trades to perform...")
         fraction_cash = round(adjusted_cash*0.01,2)
-        filtered_best_trades = [trade for trade in best_trades if trade['bestTrade']['premiumPerContract'] <= fraction_cash and trade['score'] >= min_score and trade['bestTrade']['premiumPerContract'] >= 0.12]
+        filtered_best_trades = [trade for trade in best_trades if trade['premiumPerContract'] <= fraction_cash and trade['score'] >= min_score and trade['premiumPerContract'] >= 0.12]
         selected_trades = (self.macro_analsysis(filtered_best_trades, fraction_cash,market_conditions))['selectedTrades']
         
         logger.info("Placing orders for selected trades...")
         exit_payload = [trade for trade in await (self._process_all_orders(selected_trades)) if trade is not None]
         
         logger.info("Placing orders for exit trades...")
-        exit_order_status = [trade for trade in await (self._process_all_exits(exit_payload)) if trade is not None and trade['success']]  
         
+        exit_order_status = [trade for trade in await (self._process_all_exits(exit_payload)) if trade is not None and trade['success']]  
+        for trade in exit_order_status:
+            trade['extraContext'] = self.schwab_tools.get_ticker_info(trade['ticker'])
+            trade['ai_sentiment'] = await self.ai_tools.trade_insight(trade)       
         self.email_handler.send_trade_notification(exit_order_status)
         
         end_time = asyncio.get_event_loop().time()
@@ -79,13 +86,31 @@ class AIStockAgent:
         return await asyncio.gather(*tasks)
     
     async def _process_all_tickers(self, stock_recommendations):
-        tasks = [self.micro_analysis(ticker) for ticker in stock_recommendations]
+        tasks = [self._get_best_contract(ticker) for ticker in stock_recommendations]
         return await asyncio.gather(*tasks)
+    
+    async def _get_best_contract(self, ticker):
+        try:
+            core_quote = self.schwab_tools.get_core_quote(ticker)
+            atm_strike_price = round(core_quote["last_price"])
+            options_chain,highest_scored_contract = self.schwab_tools.get_options_chain({ticker: atm_strike_price})
+            if highest_scored_contract is None:
+                raise ValueError(f"No options chain found for {ticker} at strike price {atm_strike_price}")
+            highest_scored_contract['premiumPerContract'] = highest_scored_contract['last']
+            highest_scored_contract['symbol'] = ticker
+            return  highest_scored_contract
+        except ValueError as ve:
+            logger.debug(f"ValueError in getting best contract for {ticker}: {ve}")
+            return None
+        except Exception as e:
+            logger.error(f"Error in getting best contract: {e}")
+            return None
     
     async def micro_analysis(self, ticker):
         try:
+            #use finhub API to get fundamentals and events
             fundamentals_task = self.ai_tools.get_ai_stock_events(ticker)
-            # fundamentals_and_events = await self.ai_tools.get_ai_stock_events(ticker)
+            fundamentals_and_events = await self.ai_tools.get_ai_stock_events(ticker)
 
             core_quote = self.schwab_tools.get_core_quote(ticker)
             price_history = self.schwab_tools.get_price_history(ticker)
@@ -93,20 +118,23 @@ class AIStockAgent:
             fundamentals_and_events = await fundamentals_task
 
             atm_strike_price = round(core_quote["last_price"])
-            options_chain = self.schwab_tools.get_options_chain({ticker: atm_strike_price})
-            
+            options_chain,highest_scored_contract = self.schwab_tools.get_options_chain({ticker: atm_strike_price})
+            if highest_scored_contract is None:
+                raise ValueError(f"No options chain found for {ticker} at strike price {atm_strike_price}")
             payload = {
                 "symbol":ticker,
                 "quote": core_quote,
                 "optionsChain": options_chain,
                 "historicalPrices": price_history,
-                "fundamentals": fundamentals_and_events
+                # "fundamentals": fundamentals_and_events
             }
             
-            best_trade = await self.ai_tools.micro_stock_options_analysis(payload)
-            
-            return best_trade
-    
+            # best_trade = await self.ai_tools.micro_stock_options_analysis(payload)
+            highest_scored_contract['premiumPerContract'] = highest_scored_contract['last']
+            return  highest_scored_contract
+        except ValueError as ve:
+            logger.debug(f"ValueError in micro analysis for {ticker}: {ve}")
+            return None  # Skip this ticker if no options chain is found
         except Exception as e:
             logger.error(f"Error in micro analysis: {e}")
             return None
