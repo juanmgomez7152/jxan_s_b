@@ -114,9 +114,9 @@ class SchwabTools:
             }
             #******************
             # Place order using Schwab API
-            # response = schwab_client.order_place(self.account_hash,order)
-            # if response.status_code != 201:
-            #     raise Exception(f"Error placing order: {response.text}")
+            response = schwab_client.order_place(self.account_hash,order)
+            if response.status_code != 201:
+                raise Exception(f"Error placing order: {response.text}")
             #******************
             return {
                 "premium_per_contract": premium_per_contract,
@@ -181,9 +181,9 @@ class SchwabTools:
                     } 
                     ] 
                     }
-            # oco_response = schwab_client.order_place(self.account_hash,oco_order)
-            # if oco_response.status_code != 201:
-            #     raise Exception(f"Error placing stop loss order: {oco_response.text}")
+            oco_response = schwab_client.order_place(self.account_hash,oco_order)
+            if oco_response.status_code != 201:
+                raise Exception(f"Error placing stop loss order: {oco_response.text}")
                 
         except Exception as e:
             logger.error(f"Error in placing exit orders: {e}")
@@ -198,7 +198,7 @@ class SchwabTools:
                 filtered_filled_buy_data, filtered_filled_sell_data, filtered_working_data = self._get_status_lists(current_datetime)
                 
                 filled_b_order_found = any(payload['contract_symbol'] == order['orderLegCollection'][0]['instrument']['symbol'] for order in filtered_filled_buy_data)
-                filled_b_order_found = True # for testing purposes, remove this line in production
+                # filled_b_order_found = True # for testing purposes, remove this line in production
                 if not filled_b_order_found:#if the buy_to_open order is not filled check again immediately
                     continue
                 

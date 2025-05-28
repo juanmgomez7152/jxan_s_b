@@ -38,8 +38,6 @@ class AIStockAgent:
         logger.info("Fetching stock recommendations...")
         stock_recommendations = self.yahoo_finance_scraper.get_most_active_stocks()
         
-        # stock_recommendations = await (self.ai_tools.get_ai_stock_recommendations(market_conditions=market_conditions))
-        
         logger.info("Performing micro analysis on stock recommendations...")
         best_trades = [trade for trade in await (self._process_all_tickers(stock_recommendations)) if trade is not None]
         
