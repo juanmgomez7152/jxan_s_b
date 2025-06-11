@@ -181,9 +181,11 @@ class SchwabTools:
                     } 
                     ] 
                     }
+            # Place OCO order using Schwab API
             oco_response = schwab_client.order_place(self.account_hash,oco_order)
             if oco_response.status_code != 201:
                 raise Exception(f"Error placing stop loss order: {oco_response.text}")
+            return "OCO order placed successfully"
                 
         except Exception as e:
             logger.error(f"Error in placing exit orders: {e}")
@@ -227,13 +229,16 @@ class SchwabTools:
             return {"success": False,
                     "contract_symbol": contract_symbol}
             
-    def _get_status_lists(self, date):
+    def _get_status_lists(self, date: datetime):
         try:
-            response = schwab_client.account_orders(self.account_hash, date,date)#get all orders for the day
+            begin_date = date - timedelta(days=1)  # Last 7 days
+            end_date = date + timedelta(days=1)  # Include today
+            response = schwab_client.account_orders(self.account_hash, begin_date, end_date)#get all orders for the day
             all_orders = response.json()
-            filled_buy_orders = [order for order in all_orders if order['orderLegCollection'][0]['instruction'] == "BUY_TO_OPEN" and order['status'] == "FILLED"]
-            filled_sell_orders = [order for order in all_orders if order['orderLegCollection'][0]['instruction'] == "SELL_TO_CLOSE" and order['status'] == "FILLED"]
-            working_orders = [order for order in all_orders if order['orderLegCollection'][0]['instruction'] == "SELL_TO_CLOSE" and order['status'] == "WORKING"]
+            filtered_orders = [order for order in all_orders if order['orderStrategyType'] != "OCO"]
+            filled_buy_orders = [order for order in filtered_orders if order['orderLegCollection'][0]['instruction'] == "BUY_TO_OPEN" and order['status'] == "FILLED"]
+            filled_sell_orders = [order for order in filtered_orders if order['orderLegCollection'][0]['instruction'] == "SELL_TO_CLOSE" and order['status'] == "FILLED"]
+            working_orders = [order for order in filtered_orders if order['orderLegCollection'][0]['instruction'] == "SELL_TO_CLOSE" and order['status'] == "WORKING"]
             
             return filled_buy_orders, filled_sell_orders, working_orders
         except Exception as e:
@@ -330,7 +335,7 @@ class SchwabTools:
                 for i in range(len(best_trades))
             ]) <= available_cash * 0.9
             
-            # Constraint: Diversification - no more than 50% per symbol
+            # Constraint: Diversification - no more than 70% per symbol
             symbols = set([trade['symbol'] for trade in best_trades])
             for symbol in symbols:
                 symbol_indices = [i for i in range(len(best_trades)) 
@@ -339,7 +344,7 @@ class SchwabTools:
                 prob += pulp.lpSum([
                     best_trades[i]['premiumPerContract'] * qty_vars[f"qty_{i}"]
                     for i in symbol_indices
-                ]) <= available_cash * 0.5
+                ]) <= available_cash * 0.7#change this decimal
             
             # Maximum number of distinct trades to select (avoid too many small positions)
             max_distinct_trades = min(5, len(best_trades))

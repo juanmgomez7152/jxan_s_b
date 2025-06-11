@@ -5,6 +5,7 @@ from app.web_scrapping_services import YahooFinanceScraper
 from app.email_handler import EmailHandler
 import asyncio
 import logging
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -94,7 +95,8 @@ class AIStockAgent:
             options_chain,highest_scored_contract = self.schwab_tools.get_options_chain({ticker: atm_strike_price})
             if highest_scored_contract is None:
                 raise ValueError(f"No options chain found for {ticker} at strike price {atm_strike_price}")
-            highest_scored_contract['premiumPerContract'] = highest_scored_contract['last']
+            pr_p_contract = (highest_scored_contract['bid']+highest_scored_contract['ask'])/2
+            highest_scored_contract['premiumPerContract'] = round(pr_p_contract,2)
             highest_scored_contract['symbol'] = ticker
             return  highest_scored_contract
         except ValueError as ve:
@@ -128,7 +130,8 @@ class AIStockAgent:
             }
             
             # best_trade = await self.ai_tools.micro_stock_options_analysis(payload)
-            highest_scored_contract['premiumPerContract'] = highest_scored_contract['last']
+            pr_p_contract = highest_scored_contract['bid']+highest_scored_contract['ask'] / 2
+            highest_scored_contract['premiumPerContract'] = round(pr_p_contract,2)
             return  highest_scored_contract
         except ValueError as ve:
             logger.debug(f"ValueError in micro analysis for {ticker}: {ve}")
