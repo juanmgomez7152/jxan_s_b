@@ -26,7 +26,8 @@ class AIStockAgent:
         min_score, max_allocation, market_conditions = self._get_market_conditions()
         
         self.available_cash = self.schwab_tools.get_schwab_available_cash()
-        adjusted_cash = round(self.available_cash * max_allocation,2)
+        # adjusted_cash = round(self.available_cash * max_allocation,2)
+        adjusted_cash = self.available_cash # Use full cash for trading
         
         if self.available_cash < 200:
             logger.info("Available cash is less than $200. Sleeping until next trading window...")
@@ -45,6 +46,9 @@ class AIStockAgent:
         logger.info("Selecting the best trades to perform...")
         fraction_cash = round(adjusted_cash*0.01,2)
         filtered_best_trades = [trade for trade in best_trades if trade['premiumPerContract'] <= fraction_cash and trade['score'] >= min_score and trade['premiumPerContract'] >= 0.12]
+        if len(filtered_best_trades) == 0:
+            logger.info("No trades found that meet the criteria. shutting down...")
+            return
         selected_trades = (self.macro_analsysis(filtered_best_trades, fraction_cash,market_conditions))['selectedTrades']
         
         logger.info("Placing orders for selected trades...")
@@ -143,7 +147,7 @@ class AIStockAgent:
     def _get_market_conditions(self):
         try:
             vix_level = self.schwab_tools.get_core_quote("$VIX")
-            
+            logger.info(f"Current VIX level: {vix_level}")
             # Set trading parameters based on market volatility
             if vix_level > 30:
                 market_conditions = "HIGHLY VOLATILE"

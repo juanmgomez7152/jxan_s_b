@@ -52,9 +52,9 @@ class SchwabTools:
         for ticker, strike_price in tickers_strike_dict.items():
             
             current_date =  (datetime.now() + timedelta(days=3)).strftime("%Y-%m-%d")
-            current_date_plus_14 = (datetime.now() + timedelta(days=14)).strftime("%Y-%m-%d")
+            current_date_plus_21 = (datetime.now() + timedelta(days=21)).strftime("%Y-%m-%d")
             response = schwab_client.option_chains(symbol=ticker,contractType="ALL",strikeCount=9,
-                                                strike=strike_price, includeUnderlyingQuote=False,fromDate=current_date,toDate=current_date_plus_14)
+                                                strike=strike_price, includeUnderlyingQuote=False,fromDate=current_date,toDate=current_date_plus_21)
             contract_list = []
             data = response.json()
             

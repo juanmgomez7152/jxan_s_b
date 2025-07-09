@@ -60,7 +60,7 @@ class EmailHandler:
                     <li><strong>Stop Loss:</strong> ${stop_loss}</li>
                     <li><strong>Quantity:</strong> {quantity}</li>
                     <li><strong>Would AI made this trade? </strong> {ai_sentiment}</li>
-                    <h2><strong>Possible Total Cost:</strong> ${total_cost}</h2>
+                    <h2><strong>Total Cost:</strong> ${total_cost}</h2>
                     <h2><strong>Possible Total Profit:</strong><span style="color: green;"> ${total_profit}</span></h2>
                     <h2><strong>Acceptable Total Loss:</strong><span style="color: red;"> ${total_loss}</span></h2>
                     <hr style="border-top: 3px solid #bbb;">
